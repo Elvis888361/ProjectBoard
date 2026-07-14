@@ -27,13 +27,9 @@ export function BoardPage() {
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => api.project(projectId) })
   const users = useQuery({ queryKey: ['users'], queryFn: api.users })
 
-  // Filters are applied client-side, not by refetching.
-  //
-  // The API supports server-side filtering (and I'd use it if a board could hold
-  // thousands of tasks), but filtering the cached array keeps the SSE stream as the
-  // single writer of board state. If typing in the search box refetched, every
-  // keystroke would race the live event stream for control of the same cache entry.
-  // One writer, one source of truth. The board is a few hundred tasks at most.
+  // Filtered client-side even though the API supports it, so the SSE stream stays the
+  // only writer of board state -- otherwise every keystroke races the event stream for
+  // the same cache entry. Fine for a board of a few hundred tasks.
   const tasksQuery = useTasks(projectId, {})
 
   const filtered = useMemo(() => {
@@ -87,9 +83,8 @@ export function BoardPage() {
           <h1>{project.data?.name}</h1>
         </div>
 
-        {/* Surfacing the connection state matters more than it looks. If the stream is
-            down, the board is silently stale, and a stale kanban board is worse than an
-            obviously broken one -- people act on it. */}
+        {/* A silently stale board is worse than an obviously broken one; people act on
+            it. */}
         <span className={`stream stream--${streamStatus}`} role="status">
           {streamStatus === 'live' ? 'Live' : 'Reconnecting…'}
         </span>

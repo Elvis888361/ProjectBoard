@@ -1,8 +1,7 @@
 """All SQL lives here. Routers do HTTP; this module does data.
 
-Every write that changes board state appends to the event log in the same transaction
-(see db/events.py), so there is no code path that can mutate a task without the change
-being broadcastable.
+Every board mutation appends to the event log in the same transaction, so there's no
+path that changes a task without the change being broadcastable.
 """
 
 from __future__ import annotations
@@ -54,8 +53,7 @@ async def get_user(conn: asyncpg.Connection, user_id: uuid.UUID) -> asyncpg.Reco
 
 
 async def list_users(conn: asyncpg.Connection) -> list[asyncpg.Record]:
-    # Every logged-in user can be assigned any task -- the brief scopes roles and
-    # org membership out, so "who can I assign this to" is just "everyone".
+    # No roles, so everyone is assignable.
     return await conn.fetch("SELECT id, email, display_name FROM users ORDER BY display_name")
 
 
@@ -121,8 +119,7 @@ async def list_tasks(
     status: str | None = None,
     assignee_id: uuid.UUID | None = None,
 ) -> list[asyncpg.Record]:
-    # Filters are built up as positional params rather than string-interpolated. Boring,
-    # but it's the difference between a filter box and an SQL injection.
+    # Positional params, not interpolation.
     clauses = ["t.project_id = $1"]
     params: list[Any] = [project_id]
 
@@ -168,10 +165,9 @@ async def _last_position(
     status: str,
     exclude: uuid.UUID | None = None,
 ) -> str | None:
-    """Position of the bottom task in a column, or None if the column is empty.
+    """Bottom position in a column, or None if empty.
 
-    `exclude` skips the task being moved -- otherwise a task already sitting at the
-    bottom of the column it's being dropped into would be treated as its own neighbour.
+    `exclude` skips the task being moved, so it can't end up its own neighbour.
     """
     return await conn.fetchval(
         """
@@ -198,9 +194,7 @@ async def create_task(
     due_date: date | None,
 ) -> asyncpg.Record:
     async with conn.transaction():
-        # New tasks land at the bottom of their column. `key_between(last, None)`
-        # increments the integer part, so this is a constant-length key -- appending
-        # forever does not grow the position string.
+        # Append to the bottom of the column.
         position = key_between(await _last_position(conn, project_id, status), None)
 
         row = await conn.fetchrow(
@@ -239,7 +233,7 @@ async def update_task(
     version: int,
     fields: dict[str, Any],
 ) -> asyncpg.Record:
-    """Conditional update. If the version has moved, nobody's data is overwritten."""
+    """Conditional on `version`, so a stale write can't clobber a fresh one."""
     if not fields:
         return await get_task(conn, task_id)
 
@@ -264,11 +258,9 @@ async def update_task(
         )
 
         if updated is None:
-            # Zero rows means one of two things, and the client needs to be able to
-            # tell them apart: the task is gone (404), or someone else wrote first
-            # (409, with the current state attached so the UI can reconcile without
-            # a second round trip).
-            current = await get_task(conn, task_id)  # raises NotFound if truly gone
+            # Zero rows is either "gone" or "someone wrote first", and the client needs
+            # to tell them apart. get_task raises NotFound if it's really gone.
+            current = await get_task(conn, task_id)
             raise VersionConflict(
                 "This task was changed by someone else while you were editing it.",
                 {"current": _task_payload(current)},
@@ -296,10 +288,10 @@ async def move_task(
     before_id: uuid.UUID | None,
     after_id: uuid.UUID | None,
 ) -> asyncpg.Record:
-    """Move a task to `status`, positioned between `before_id` and `after_id`.
+    """Move to `status`, between `before_id` and `after_id`.
 
-    The neighbours are read inside the transaction, so the position we compute is based
-    on the ordering as it exists at write time, not as the client saw it N seconds ago.
+    Neighbours are read inside the transaction, so the position is based on the order at
+    write time rather than whatever the client last saw.
     """
     async with conn.transaction():
         task = await get_task(conn, task_id)
@@ -315,21 +307,13 @@ async def move_task(
             else None
         )
 
-        # Naming no neighbours means "rank last", not "this column is empty". That's the
-        # same contract Jira's rank API uses, and getting it wrong is not a subtle bug:
-        # every task moved into a column with no neighbours specified would be handed
-        # the *first* position, so two of them would collide on the same key and the
-        # column's order would be decided by the id tie-break instead of by the user.
-        #
-        # The same branch handles a neighbour that vanished between the client's drag
-        # and our write (deleted, or moved away by someone else). The user's intent --
-        # "put it in this column" -- is still satisfiable, so appending and telling them
-        # where it landed beats a 409 they can do nothing about.
+        # No neighbours named means rank LAST, not "empty column". Getting this wrong
+        # hands every such task the first key, and they collide. Also covers a neighbour
+        # that vanished mid-drag -- appending beats a 409 the user can't act on.
         if before is None and after is None:
             before = await _last_position(conn, task["project_id"], status, exclude=task_id)
 
-        # Defensive: if the two neighbours don't actually bracket a gap (the client sent
-        # a stale pair, or they've been reordered since), fall back to "after `before`".
+        # Stale or reordered pair that doesn't bracket a gap.
         if before is not None and after is not None and before >= after:
             after = None
 
@@ -388,11 +372,8 @@ async def delete_task(conn: asyncpg.Connection, task_id: uuid.UUID, user_id: uui
 def _task_payload(row: asyncpg.Record) -> dict[str, Any]:
     """Serialise a task for the event log.
 
-    Events carry the whole task, not just an id. That costs a few hundred bytes per
-    event and means a subscriber can apply an update without a follow-up fetch -- and
-    since `version` rides along, a client can drop any event that is older than what
-    it already has. That version guard is what stops a late-arriving event from
-    clobbering a newer optimistic update.
+    The whole task, not just an id: subscribers can apply it without a follow-up fetch,
+    and `version` riding along is what lets them drop stale events.
     """
     return {
         "id": str(row["id"]),

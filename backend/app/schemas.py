@@ -8,8 +8,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class TaskStatus(StrEnum):
-    """Mirrors the `task_status` enum in Postgres. The two must be changed together --
-    the DB is the one that actually enforces it."""
+    """Mirrors the task_status enum in Postgres; change both together."""
 
     todo = "todo"
     in_progress = "in_progress"
@@ -18,8 +17,7 @@ class TaskStatus(StrEnum):
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    # 8 is the floor OWASP asks for. I'm not enforcing character classes: they push
-    # users toward "Password1!" and NIST dropped the recommendation years ago.
+    # Length only. Character-class rules just produce "Password1!".
     password: str = Field(min_length=8, max_length=128)
     display_name: str = Field(min_length=1, max_length=80)
 
@@ -74,11 +72,9 @@ class TaskCreate(BaseModel):
 
 
 class TaskUpdate(BaseModel):
-    """PATCH semantics: every field is optional, and only what's sent gets written.
+    """PATCH: only what's sent gets written.
 
-    `version` is required. There is no way to update a task without saying which
-    version you believed you were editing -- that's what makes the lost-update check
-    non-optional rather than a thing callers can forget.
+    `version` is required, so the lost-update check can't be forgotten.
     """
 
     version: int
@@ -88,25 +84,22 @@ class TaskUpdate(BaseModel):
     assignee_id: uuid.UUID | None = None
     due_date: date | None = None
 
-    # Distinguishes "not sent" from "explicitly cleared" for the nullable fields --
-    # without this, PATCH {"version": 3} would unassign the task.
+    # "not sent" vs "explicitly cleared". Without these, PATCH {"version": 3} would
+    # unassign the task.
     clear_assignee: bool = False
     clear_due_date: bool = False
 
 
 class TaskMove(BaseModel):
-    """Move is relational, not absolute: the client names the neighbours it wants to
-    land between and the SERVER computes the position string.
+    """Relational, not absolute: name the neighbours, the server computes the position.
 
-    This is what Jira's and Asana's rank APIs do, and it's the thing that makes
-    concurrent drags safe -- two clients cannot fight over a number they both chose,
-    because neither of them chooses it.
+    Two clients can't fight over a number neither of them picked.
     """
 
     version: int
     status: TaskStatus
-    before_id: uuid.UUID | None = None  # task this one should sit immediately after
-    after_id: uuid.UUID | None = None  # task this one should sit immediately before
+    before_id: uuid.UUID | None = None  # sit immediately after this task
+    after_id: uuid.UUID | None = None  # sit immediately before this task
 
 
 class TaskOut(BaseModel):

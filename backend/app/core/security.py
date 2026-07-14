@@ -1,20 +1,8 @@
 """Password hashing and session tokens.
 
-Two deliberate deviations from what most FastAPI tutorials still show:
-
-* `pwdlib[argon2]`, not `passlib`. passlib's last release was 2020 and it breaks
-  outright against bcrypt 5.x; FastAPI's own docs moved to pwdlib. Argon2id also
-  sidesteps bcrypt's 72-byte silent input truncation.
-* `PyJWT`, not `python-jose`. python-jose is unmaintained and carries CVE-2024-33663
-  (algorithm confusion -> signature forgery). FastAPI's docs moved to PyJWT too.
-
-The token lives in an httpOnly cookie rather than localStorage. That is not a
-security-theatre preference -- it's forced by the realtime design. The browser's
-EventSource API cannot set an `Authorization` header (whatwg/html#2177, open since
-2016), so a bearer token would have to travel in the SSE query string, where it lands
-in every access log and proxy trace. A cookie is sent automatically, is unreadable
-from JS, and works for both the REST calls and the stream. The cost is CSRF surface,
-handled by SameSite=Lax + an Origin check on mutations (see main.py).
+pwdlib/PyJWT rather than the passlib/python-jose pair most tutorials show -- both are
+unmaintained and python-jose has CVE-2024-33663. The token rides in an httpOnly cookie
+because EventSource can't set an Authorization header; see ARCHITECTURE.md.
 """
 
 from __future__ import annotations
@@ -28,7 +16,7 @@ from pwdlib import PasswordHash
 from app.core.config import get_settings
 from app.core.errors import Unauthorized
 
-_hasher = PasswordHash.recommended()  # Argon2id at OWASP's current parameters
+_hasher = PasswordHash.recommended()  # Argon2id
 
 
 def hash_password(password: str) -> str:
@@ -56,9 +44,7 @@ def read_token(token: str) -> uuid.UUID:
         payload = jwt.decode(
             token,
             settings.jwt_secret,
-            # An explicit allowlist. Without it, PyJWT would honour the `alg` in the
-            # token header, which is the whole algorithm-confusion attack class.
-            algorithms=[settings.jwt_algorithm],
+            algorithms=[settings.jwt_algorithm],  # allowlist; never trust the token's alg
             options={"require": ["exp", "sub"]},
         )
     except jwt.PyJWTError as exc:

@@ -1,8 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 
-// jsdom has no EventSource. The board test doesn't exercise the live stream (that's
-// covered by the backend integration test, which drives a real one), so a stub is
-// enough to let the component mount without blowing up.
+// jsdom has no EventSource. The live stream is covered by the backend tests, which
+// drive a real one, so a stub is enough to let components mount.
 class EventSourceStub {
   static readonly CLOSED = 2
   readyState = 0

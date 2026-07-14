@@ -34,12 +34,12 @@ async def current_user(
     if not session:
         raise Unauthorized("Not signed in.")
 
-    from app.core.security import read_token  # local import: avoids a config import cycle
+    from app.core.security import read_token  # avoids a config import cycle
 
     user_id: uuid.UUID = read_token(session)
     user = await queries.get_user(conn, user_id)
     if user is None:
-        # Token is validly signed but the user is gone -- treat as signed out, not 500.
+        # Validly signed, but the user is gone. Signed out, not a 500.
         raise Unauthorized("Not signed in.")
     return user
 

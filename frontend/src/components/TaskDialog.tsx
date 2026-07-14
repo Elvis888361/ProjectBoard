@@ -18,9 +18,8 @@ export function TaskDialog({ task, users, onSave, onDelete, onClose, saving }: P
   const [assignee, setAssignee] = useState(task.assignee_id ?? '')
   const [due, setDue] = useState(task.due_date ?? '')
 
-  // If someone else edits this task while the dialog is open, the SSE event updates the
-  // cache and this prop changes underneath us. Re-sync -- otherwise the user saves a
-  // form built from a version that no longer exists and eats a 409 they can't act on.
+  // Someone else editing this task changes the prop under us. Re-sync, or the user
+  // saves a form built on a dead version and eats a 409 they can't act on.
   useEffect(() => {
     setTitle(task.title)
     setDescription(task.description)
@@ -40,9 +39,7 @@ export function TaskDialog({ task, users, onSave, onDelete, onClose, saving }: P
     const trimmed = title.trim()
     if (!trimmed) return
 
-    // Send only what changed. That's what makes this a PATCH rather than a PUT, and it
-    // narrows the blast radius of a conflict: two people editing different fields of
-    // the same task don't need to fight, even though they share a version number.
+    // Only what changed.
     const fields: Record<string, unknown> = {}
     if (trimmed !== task.title) fields.title = trimmed
     if (description !== task.description) fields.description = description
@@ -94,8 +91,7 @@ export function TaskDialog({ task, users, onSave, onDelete, onClose, saving }: P
 
           <div className="dialog__row">
             <label>
-              {/* Also the keyboard path for moving a task: drag-and-drop is mouse-only,
-                  so this select is how a keyboard user changes a column. */}
+              {/* The keyboard path for moving a task -- drag-and-drop is mouse-only. */}
               Status
               <select value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)}>
                 {STATUSES.map((s) => (

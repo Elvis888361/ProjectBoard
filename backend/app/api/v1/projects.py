@@ -53,7 +53,7 @@ async def list_tasks(
     status_filter: str | None = Query(default=None, alias="status"),
     assignee_id: uuid.UUID | None = None,
 ) -> list[TaskOut]:
-    await queries.get_project(conn, project_id)  # 404 rather than an empty board
+    await queries.get_project(conn, project_id)  # 404, not an empty board
     rows = await queries.list_tasks(
         conn, project_id, search=search, status=status_filter, assignee_id=assignee_id
     )
@@ -89,12 +89,7 @@ async def project_activity(
     _: CurrentUser,
     limit: int = Query(default=50, le=200),
 ) -> list[ActivityOut]:
-    """The activity feed is a plain read of the event log.
-
-    It cost nothing to build: the events table already exists because the realtime
-    layer needs it. That's the payoff of making the log the source of truth for
-    propagation rather than broadcasting straight from the request handler.
-    """
+    """Just a read of the event log, which the realtime layer needed anyway."""
     rows = await conn.fetch(
         """
         SELECT e.id, e.type, e.task_id, e.payload, e.created_at,

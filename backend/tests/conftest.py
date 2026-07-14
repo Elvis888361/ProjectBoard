@@ -1,18 +1,9 @@
 """Test fixtures.
 
-Two decisions here that are worth the paragraph:
-
-1. THE TESTS RUN AGAINST A REAL POSTGRES, not SQLite and not a mock. This app leans on
-   `citext`, a native enum, a `BIGSERIAL` cursor and `LISTEN/NOTIFY`. A stand-in
-   database would be a stand-in for precisely the parts I most need to be right about.
-
-2. THE TESTS RUN AGAINST A REAL HTTP SERVER, not httpx's in-process ASGITransport.
-   This is not a style preference -- ASGITransport *cannot* test this app. It awaits
-   the ASGI application to completion before returning a response, and an SSE stream
-   never completes, so `client.stream(...)` against the events endpoint deadlocks
-   forever. (I found this the hard way; see AI_USAGE.md.) Booting uvicorn on a real
-   socket costs about fifteen lines and buys real coverage of the streaming path,
-   which is the single most important thing in this codebase.
+Real Postgres (the app leans on citext, a native enum, BIGSERIAL and LISTEN/NOTIFY), and
+a real uvicorn server rather than httpx's ASGITransport -- that transport awaits the ASGI
+app to completion, and an SSE stream never completes, so it deadlocks on the events
+endpoint. Fifteen lines to boot a real socket, and the streaming path gets tested.
 """
 
 from __future__ import annotations
@@ -61,9 +52,8 @@ async def server() -> str:
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def client(server: str) -> AsyncClient:
-    # Truncating is faster than dropping and re-migrating, and RESTART IDENTITY resets
-    # the events sequence so each test's event ids start from 1 -- which is what lets
-    # the replay test assert on a concrete Last-Event-ID.
+    # RESTART IDENTITY resets the events sequence, so the replay test can assert on a
+    # concrete Last-Event-ID.
     pool: asyncpg.Pool = app.state.pool
     async with pool.acquire() as conn:
         await conn.execute("TRUNCATE events, tasks, projects, users RESTART IDENTITY CASCADE")
@@ -74,8 +64,7 @@ async def client(server: str) -> AsyncClient:
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def alice(client: AsyncClient) -> AsyncClient:
-    """A signed-in client. The server sets an httpOnly session cookie and httpx's cookie
-    jar carries it from here on -- exactly what a browser does."""
+    """Signed in. httpx's cookie jar carries the session, same as a browser."""
     res = await client.post(
         "/api/v1/auth/register",
         json={

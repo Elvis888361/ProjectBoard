@@ -20,10 +20,8 @@ async def get_task(task_id: uuid.UUID, conn: Conn, _: CurrentUser) -> TaskOut:
 async def update_task(
     task_id: uuid.UUID, body: TaskUpdate, conn: Conn, user: CurrentUser
 ) -> TaskOut:
-    # `exclude_unset` is what makes this a real PATCH: a field the client didn't send
-    # is left alone, rather than being overwritten with None. The two `clear_*` flags
-    # exist because that same rule makes it impossible to express "set this to null"
-    # any other way.
+    # exclude_unset is what makes this a real PATCH: unsent fields are left alone, not
+    # nulled. Hence the clear_* flags for the nullable ones.
     sent = body.model_dump(exclude_unset=True)
     fields: dict[str, object] = {}
 

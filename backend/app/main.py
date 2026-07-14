@@ -37,8 +37,6 @@ app = FastAPI(
     title="ProjectBoard API",
     version="1.0.0",
     lifespan=lifespan,
-    # Versioned from day one. It costs one path segment now and is the difference
-    # between shipping a breaking change and not being able to.
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
 )
@@ -48,17 +46,10 @@ install_error_handlers(app)
 
 @app.middleware("http")
 async def csrf_origin_check(request: Request, call_next):
-    """Reject cross-site state-changing requests.
+    """Reject cross-site writes.
 
-    Because auth is a cookie, the browser attaches it to any request to this origin --
-    including one triggered by evil.com. SameSite=Lax already blocks the common cases,
-    but OWASP is explicit that SameSite is defence-in-depth, not the control. This is
-    the control: a state-changing request must either carry no Origin (same-origin
-    fetch, curl) or carry one we recognise.
-
-    Cheaper than a synchroniser-token flow and sufficient for a first-party SPA served
-    same-origin. If this app ever gets a third-party integration posting on a user's
-    behalf, this becomes a signed double-submit token instead.
+    Cookie auth means the browser attaches the session to anything hitting this origin.
+    SameSite=Lax covers the common cases but is defence-in-depth, not the control.
     """
     if request.method not in SAFE_METHODS:
         origin = request.headers.get("origin")
@@ -77,9 +68,8 @@ async def csrf_origin_check(request: Request, call_next):
     return await call_next(request)
 
 
-# In dev the frontend is proxied through Vite, so everything is same-origin and this
-# is empty -- no CORS at all, which is also why the session cookie just works. It's
-# here for the case where the API is deployed on a different host to the SPA.
+# Empty in dev and in compose: the frontend is proxied, so it's all same-origin and
+# there's no CORS at all. Here for a split-origin deploy.
 if get_settings().cors_origins:
     app.add_middleware(
         CORSMiddleware,
@@ -97,11 +87,8 @@ app.include_router(stream.router, prefix="/api/v1")
 
 @app.get("/api/health", tags=["ops"])
 async def health(request: Request) -> dict[str, object]:
-    """Liveness + a real dependency check.
-
-    A health endpoint that returns 200 without touching the database tells you the
-    process is running, which is the thing you already knew.
-    """
+    """Touches the database. A health check that doesn't only tells you the process is
+    up, which you already knew."""
     try:
         async with request.app.state.pool.acquire() as conn:
             await conn.fetchval("SELECT 1")

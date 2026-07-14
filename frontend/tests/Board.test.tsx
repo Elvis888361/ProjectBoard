@@ -27,18 +27,9 @@ const task = (over: Partial<Task> & { id: string }): Task => ({
 })
 
 /**
- * The interaction I care about is the drag: it's the one place where the UI shows the
- * user something the server hasn't confirmed yet. A test that only asserted "three
- * columns render" would pass forever while the optimistic path silently broke.
- *
- * So this covers the two halves that actually matter -- the card moves instantly, and
- * when the server rejects the move, it moves back.
- */
-/**
- * Board takes its tasks as a prop, so a test that renders it with a static array would
- * never see an optimistic update -- those are written to the TanStack cache. This
- * harness subscribes to the cache exactly the way BoardPage does, which is what makes
- * the optimistic and rollback assertions below mean anything.
+ * Board takes tasks as a prop, but optimistic updates are written to the query cache --
+ * so a static array would never show them. This subscribes to the cache the way
+ * BoardPage does, which is what makes the assertions below mean anything.
  */
 function BoardHarness({ tasks, onConflict }: { tasks: Task[]; onConflict: () => void }) {
   const { data } = useQuery({
@@ -85,9 +76,7 @@ describe('Board', () => {
     const todo = within(screen.getByRole('region', { name: 'Todo' }))
     const cards = todo.getAllByRole('button')
 
-    // Ordered by `position`, not by the order they arrived in the array. This is the
-    // whole contract of the fractional index -- if it regresses, boards silently
-    // scramble.
+    // By position, not array order. If this regresses, boards silently scramble.
     expect(cards[0]).toHaveTextContent('first')
     expect(cards[1]).toHaveTextContent('second')
 
@@ -95,7 +84,7 @@ describe('Board', () => {
   })
 
   it('moves the card immediately on drop, before the server responds', async () => {
-    // A request that never settles: the point is that the UI does not wait for it.
+    // Never settles -- the point is that the UI doesn't wait.
     vi.mocked(api.moveTask).mockReturnValue(new Promise(() => {}))
     setup([task({ id: 'ship-it', status: 'todo', version: 3 })])
 
@@ -106,8 +95,7 @@ describe('Board', () => {
       expect(inProgress.getByText('ship-it')).toBeVisible()
     })
 
-    // The move is relational -- we send the neighbours, never a position. An empty
-    // target column means no neighbours on either side.
+    // Empty target column, so no neighbours either side.
     expect(api.moveTask).toHaveBeenCalledWith('ship-it', 3, 'in_progress', null, null)
   })
 
@@ -121,17 +109,16 @@ describe('Board', () => {
 
     dragCardToColumn('dragged', 'Done')
 
-    // Dropping on the column (not on a card) appends: after `bottom`, before nothing.
+    // Dropping on the column, not a card, appends.
     await waitFor(() =>
       expect(api.moveTask).toHaveBeenCalledWith('dragged', 1, 'done', 'bottom', null),
     )
   })
 
   it('rolls the card back and reports the conflict when the server rejects the move', async () => {
-    // Hold the rejection so the optimistic state is observable. If the mock rejected
-    // immediately, the rollback would land in the same tick as the optimistic write and
-    // the test could never see the card in the middle -- it would pass even if the
-    // optimistic update had been removed entirely, which would make it worthless.
+    // Held open so the optimistic state is observable. An immediately-rejecting mock
+    // would roll back in the same tick, and this test would pass even with the
+    // optimistic update removed entirely.
     let reject!: (error: unknown) => void
     vi.mocked(api.moveTask).mockReturnValue(
       new Promise((_resolve, rej) => {
@@ -150,17 +137,15 @@ describe('Board', () => {
       ).toBeVisible(),
     )
 
-    // ...and now someone else's write gets there first. The server rejects our stale
-    // version and hands back the current state.
+    // Someone else got there first.
     reject(
       new ApiError(409, 'version_conflict', 'This task was moved by someone else.', {
         current: task({ id: 'contested', status: 'done', version: 9 }),
       }),
     )
 
-    // ...then rolls back out of it once the 409 arrives, and the user is told why.
-    // Silently reverting would be worse than not moving at all: the user would think
-    // their drag worked and it just didn't stick.
+    // ...then rolls back, and the user is told why. Reverting silently would be worse
+    // than not moving at all.
     await waitFor(() =>
       expect(
         within(screen.getByRole('region', { name: 'In Progress' })).queryByText('contested'),
@@ -174,7 +159,6 @@ describe('Board', () => {
 
     dragCardToColumn('unmoved', 'Todo')
 
-    // No round trip, no version bump, and no event fired at everyone else on the board.
     expect(api.moveTask).not.toHaveBeenCalled()
   })
 })

@@ -1,13 +1,10 @@
 """Unit tests for fractional indexing.
 
-This is the backend business logic I most wanted covered. It's the only place in the
-app with a real algorithm -- everything else is SQL and HTTP plumbing, where an
-integration test gives better value per line. And its failure mode is nasty: a subtly
-wrong key generator doesn't crash, it just quietly corrupts the order of everybody's
-board, and you find out from a user.
+The only real algorithm in the app, and its failure mode is nasty -- a subtly wrong key
+generator doesn't crash, it quietly scrambles everyone's board.
 
-The invariant under test is the only one that matters: after any sequence of moves,
-sorting by the generated keys reproduces the order the user asked for.
+One invariant: after any sequence of moves, sorting by the keys reproduces the order the
+user asked for.
 """
 
 import random
@@ -31,11 +28,8 @@ def test_append_keeps_keys_ordered():
 
 
 def test_append_does_not_grow_the_key():
-    """The whole reason for the integer/fraction split.
-
-    A naive midpoint-of-(0,1) scheme grows the key by a character on every append, and
-    appending is the most common operation on a board. Here 1000 appends stay short.
-    """
+    """The reason for the integer/fraction split. A naive midpoint scheme would add a
+    character per append, and append is the commonest operation on a board."""
     prev = None
     for _ in range(1000):
         prev = key_between(prev, None)
@@ -59,12 +53,8 @@ def test_insert_between_two_keys():
 
 
 def test_repeated_insert_into_the_same_gap_stays_ordered():
-    """The pathological case: always insert at the same spot.
-
-    This is what makes keys grow, and it's the thing I'd watch in production. 200 of
-    them is far past anything a human does by dragging. The keys get long; they must
-    not get *wrong*.
-    """
+    """The pathological case -- always insert at the same spot. Keys get long; they must
+    not get wrong."""
     lo = key_between(None, None)
     hi = key_between(lo, None)
     for _ in range(200):
@@ -74,9 +64,8 @@ def test_repeated_insert_into_the_same_gap_stays_ordered():
 
 
 def test_random_moves_preserve_order():
-    """Fuzz. Model the column as a list, do random inserts, assert the DB's ORDER BY
-    (which is `ORDER BY position`) would reproduce the list."""
-    rng = random.Random(1234)  # seeded: a failure here must be reproducible
+    """Fuzz: random inserts, then assert ORDER BY position reproduces the list."""
+    rng = random.Random(1234)  # seeded, so a failure is reproducible
     column: list[str] = []
 
     for _ in range(300):
@@ -97,7 +86,6 @@ def test_rejects_reversed_bounds():
 
 
 def test_rejects_a_malformed_position():
-    # Guards the API boundary: a client (or a bad migration) handing us junk should
-    # fail loudly here rather than write an unsortable key into the tasks table.
+    # Fail loudly rather than write an unsortable key into tasks.
     with pytest.raises(InvalidPosition):
         key_between("!!not-a-key", None)

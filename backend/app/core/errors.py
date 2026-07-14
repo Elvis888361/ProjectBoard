@@ -1,10 +1,9 @@
-"""One error shape for the whole API.
+"""One error shape for the whole API:
 
-    {"error": {"code": "task_conflict", "message": "...", "details": {...}}}
+    {"error": {"code": "...", "message": "...", "details": {...}}}
 
-`code` is a stable machine-readable string; the frontend switches on it. `message`
-is for humans. `details` is free-form and is where a 409 puts the current server
-state so the client can reconcile without a second round trip.
+`code` is stable and the frontend switches on it. A 409 puts current server state in
+`details` so the client can reconcile without another round trip.
 """
 
 from __future__ import annotations
@@ -48,13 +47,10 @@ class RateLimited(APIError):
 
 
 class VersionConflict(APIError):
-    """Optimistic concurrency check failed -- someone else wrote first.
+    """Someone else wrote first.
 
-    The version travels in the request BODY, not an `If-Match` header, so per RFC 9110
-    this is a 409 (a conflict with current resource state) and not a 412 (a conditional
-    request header evaluated false). Documented in ARCHITECTURE.md; the practical reason
-    for body-over-header is that the board's move endpoint already carries a small
-    intent object, and splitting half of it into headers buys nothing.
+    409 and not 412: the version is in the body, so no conditional request header was
+    evaluated (RFC 9110).
     """
 
     status_code = status.HTTP_409_CONFLICT
@@ -78,8 +74,8 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
-        # Pydantic's raw output has a `ctx` key that can hold non-serialisable objects,
-        # so pick out just the fields the client can act on.
+        # Pydantic's `ctx` can hold non-serialisable objects, so keep only what the
+        # client can act on.
         fields = [
             {"field": ".".join(str(p) for p in e["loc"][1:]), "message": e["msg"]}
             for e in exc.errors()

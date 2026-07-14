@@ -30,11 +30,9 @@ export interface Task {
   assignee_id: string | null
   assignee_name: string | null
   due_date: string | null
-  /** Lexicographic fractional index. Sort with `position < position`, never parse it. */
+  /** Fractional index. Compare as a string; never parse it. */
   position: string
-  /** Bumped by the server on every write. Every mutation must send the version it
-   *  believed it was editing, and every incoming event is dropped if its version is
-   *  not newer than what's already in the cache. */
+  /** Sent with every mutation, and used to drop stale events. */
   version: number
   created_at: string
   updated_at: string
@@ -49,7 +47,7 @@ export interface ActivityEntry {
   created_at: string
 }
 
-/** The `error` shape every non-2xx response from the API uses. */
+/** Every non-2xx response from the API. */
 export interface ApiErrorBody {
   error: {
     code: string
@@ -68,7 +66,7 @@ export class ApiError extends Error {
     super(message)
   }
 
-  /** A 409 carries the current server state so the UI can reconcile without refetching. */
+  /** A 409 carries current server state, so the UI can reconcile without a refetch. */
   get currentTask(): Task | undefined {
     const details = this.details as { current?: Task } | undefined
     return details?.current

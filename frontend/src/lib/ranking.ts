@@ -1,20 +1,11 @@
 /**
- * A key that sorts between two positions -- for optimistic rendering ONLY.
+ * A key that sorts between two positions -- for optimistic rendering only.
  *
- * The server owns positions. It runs the real fractional-indexing algorithm (see
- * backend/app/core/ranking.py) and its answer is authoritative; `onSuccess` overwrites
- * whatever we guessed here with the row the server actually wrote.
- *
- * So I deliberately did NOT port that algorithm to TypeScript. Two implementations of
- * the same algorithm in two languages is a bug factory: they drift, and the drift shows
- * up as a board that's subtly mis-ordered on one client only. What this function needs
- * to guarantee is exactly one thing, and it's much weaker than what the server needs:
- *
- *     before < result < after     (lexicographically)
- *
- * That's enough to draw the card in the right slot for the ~50ms the request is in
- * flight. It does not need to produce the same string as the server, and it doesn't try
- * to -- it just needs to sort the same way. Keeping the two jobs separate is the point.
+ * Deliberately NOT a port of the server's algorithm (backend/app/core/ranking.py). Two
+ * implementations of one algorithm in two languages drift, and the drift shows up as a
+ * board that's mis-ordered on one client only. This only has to guarantee
+ * `before < result < after`, which is enough to draw the card in the right slot for the
+ * ~50ms a request is in flight. The server's answer overwrites it.
  */
 
 const MID = 'V' // a digit near the middle of the server's base62 alphabet
@@ -34,10 +25,8 @@ export function keyBetween(before: string | null, after: string | null): string 
   const a = before as string
   const b = after as string
 
-  // Walk down the alphabet appending to `a` until we land under `b`. In practice this
-  // terminates on the first or second try; the loop bound is a guard against a
-  // pathological pair, and falling back to `a` (i.e. not reordering optimistically) is
-  // a cosmetic no-op, not a correctness bug.
+  // Terminates on the first or second try in practice. Falling through to `a` just
+  // means we don't reorder optimistically -- cosmetic, not a correctness bug.
   for (let depth = 0; depth < 8; depth++) {
     const candidate = a + MID.repeat(depth + 1)
     if (candidate > a && candidate < b) return candidate

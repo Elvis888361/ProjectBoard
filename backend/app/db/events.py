@@ -1,51 +1,10 @@
-"""The realtime spine: an append-only event log plus a Postgres-backed broker.
+"""Append-only event log + a Postgres-backed broker.
 
-How a change reaches another user's browser:
+Writes append an event in the same transaction as the state change, then NOTIFY. Each
+SSE subscriber gets a queue; the listener fans notifications out to them.
 
-    PATCH /tasks/{id}
-      |
-      +-- BEGIN
-      |     UPDATE tasks ... WHERE id = $1 AND version = $2     <- optimistic lock
-      |     INSERT INTO events (...) RETURNING id               <- same transaction
-      |     SELECT pg_notify('board_events', '<project>:<id>')  <- fires on COMMIT
-      +-- COMMIT
-                |
-                v
-    listener connection (one per worker, LISTEN board_events)
-                |
-                v
-    in-process fan-out to the asyncio.Queue of every SSE subscriber on that project
-                |
-                v
-    GET /projects/{id}/events  ->  `id: 42\\ndata: {...}`  ->  EventSource.onmessage
-
-Three things about this are load-bearing, and each is a decision I'd defend:
-
-1. The event row is written in the SAME transaction as the state change. The log
-   therefore cannot disagree with the table -- if the update rolls back, so does the
-   event. This is why the log is trustworthy enough to replay from.
-
-2. NOTIFY carries an ID, never the row. The payload cap is 8000 bytes and an oversized
-   payload does not drop the notification -- it ABORTS the writing transaction. Sending
-   an ID also means identical notifications dedupe within a transaction for free. The
-   subscriber re-reads the event by id, so it always renders current state rather than
-   a snapshot that may already be stale by the time it's delivered.
-
-3. NOTIFY is a latency optimisation, NOT the correctness mechanism. It is at-most-once
-   with no persistence: if the listener is reconnecting when a NOTIFY fires, that
-   notification is gone and there is no way to detect the loss. Correctness comes from
-   the client's cursor -- on every (re)connect it sends `Last-Event-ID` and we replay
-   the gap out of the events table. The system is still correct with NOTIFY entirely
-   disabled; it just gets slower. Every team that has succeeded with LISTEN/NOTIFY
-   built it this way, and the ones that treated it as a delivery guarantee got burned.
-
-Known ceiling, so I can say it out loud rather than be caught by it: on PG <= 18 a
-NOTIFY signals every listening backend in the database regardless of channel, so cost
-is O(listeners). Our listener count equals our worker count (single digits), not our
-user count -- the pathological case is one listener per connected client, which this
-design specifically avoids. And every NOTIFY-bearing transaction takes an exclusive
-lock on a global object, so those commits serialise instance-wide; that bites at tens
-of thousands of concurrent writers, roughly four orders of magnitude above this app.
+NOTIFY is a latency optimisation, not a delivery guarantee -- it's at-most-once with no
+replay. Correctness comes from the client's Last-Event-ID cursor. See ARCHITECTURE.md.
 """
 
 from __future__ import annotations
@@ -67,9 +26,7 @@ log = logging.getLogger(__name__)
 
 CHANNEL = "board_events"
 
-# Bounded, so a slow browser can't grow a queue without limit. If a subscriber falls
-# this far behind, dropping it is correct: it reconnects with Last-Event-ID and replays
-# from the log, which is exactly the path we already have to support.
+# A subscriber that falls this far behind gets dropped. It reconnects and replays.
 SUBSCRIBER_QUEUE_SIZE = 100
 
 
@@ -82,8 +39,7 @@ async def append_event(
     actor_id: uuid.UUID | None,
     task_id: uuid.UUID | None = None,
 ) -> int:
-    """Append to the log and schedule the notification. MUST be called inside the
-    same transaction as the state change it describes."""
+    """Must be called inside the transaction that made the change."""
     event_id = await conn.fetchval(
         """
         INSERT INTO events (project_id, task_id, type, actor_id, payload)
@@ -96,9 +52,8 @@ async def append_event(
         actor_id,
         json.dumps(payload),
     )
-    # pg_notify inside the transaction: Postgres holds the notification until COMMIT
-    # and drops it on ROLLBACK, so subscribers can never see an event for a change
-    # that didn't happen.
+    # Payload is an id, never the row: the cap is 8000 bytes and overflowing it aborts
+    # the transaction. Fires on COMMIT, dropped on ROLLBACK.
     await conn.execute("SELECT pg_notify($1, $2)", CHANNEL, f"{project_id}:{event_id}")
     return event_id
 
@@ -144,29 +99,20 @@ class EventBroker:
             await self._conn.close()
 
     async def _supervise(self) -> None:
-        """Keep a listener connection alive, forever.
-
-        This loop is not defensive boilerplate -- it's the single most likely way this
-        design fails in production. asyncpg does NOT auto-reconnect a standalone
-        connection (only pooled ones), and it has no client-side TCP keepalive, so a
-        connection to a server that died can sit there looking healthy and silently
-        deliver nothing. Hence the explicit `SELECT 1` heartbeat: it's how we find out.
-
-        The listener also cannot come from the pool. asyncpg's pool runs `UNLISTEN *`
-        when a connection is released, which would silently unsubscribe us.
-        """
+        # A dedicated connection, not a pooled one: asyncpg runs `UNLISTEN *` on release.
+        # asyncpg also won't auto-reconnect a standalone connection and has no TCP
+        # keepalive, so a dead listener sits there looking healthy. Hence the heartbeat.
         backoff = 1.0
         while not self._stopping.is_set():
             try:
-                settings = get_settings()
-                self._conn = await asyncpg.connect(settings.database_url)
+                self._conn = await asyncpg.connect(get_settings().database_url)
                 await self._conn.add_listener(CHANNEL, self._on_notify)
                 log.info("listening on %s", CHANNEL)
                 backoff = 1.0
 
                 while not self._stopping.is_set():
                     await asyncio.sleep(20)
-                    await self._conn.fetchval("SELECT 1")  # liveness probe
+                    await self._conn.fetchval("SELECT 1")
 
             except asyncio.CancelledError:
                 raise
@@ -179,8 +125,7 @@ class EventBroker:
                 backoff = min(backoff * 2, 30.0)
 
     def _on_notify(self, _conn, _pid, _channel: str, payload: str) -> None:
-        # asyncpg calls this synchronously from the protocol loop, so it must not block
-        # and must not await. Parse, route, return.
+        # Called from asyncpg's protocol loop, so it can't block or await.
         project_str, _, event_str = payload.partition(":")
         try:
             project_id = uuid.UUID(project_str)
@@ -193,7 +138,6 @@ class EventBroker:
             try:
                 queue.put_nowait(event_id)
             except asyncio.QueueFull:
-                # See SUBSCRIBER_QUEUE_SIZE. Drop it; the client will resync on reconnect.
                 log.warning("subscriber queue full for project %s", project_id)
 
     @contextlib.asynccontextmanager

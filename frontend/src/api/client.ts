@@ -13,9 +13,8 @@ const BASE = '/api/v1'
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
-    // The session cookie is httpOnly, so there is no token for us to attach by hand --
-    // we just have to tell fetch to send cookies. Same-origin in dev (Vite proxy) and
-    // in prod (nginx), so this is `same-origin`, not `include`.
+    // The session is an httpOnly cookie, so there's no token to attach by hand. Proxied
+    // to one origin in both dev and prod, hence same-origin rather than include.
     credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
@@ -91,11 +90,7 @@ export const api = {
       body: JSON.stringify({ version, ...fields }),
     }),
 
-  /**
-   * Moves are relational: we name the neighbours, the server computes the position.
-   * We never send a position value -- if two people drag into the same gap at once,
-   * neither client picked the number, so there's nothing for them to disagree about.
-   */
+  /** Relational: name the neighbours, the server computes the position. */
   moveTask: (
     taskId: string,
     version: number,

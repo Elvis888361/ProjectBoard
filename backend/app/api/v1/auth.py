@@ -16,19 +16,11 @@ from app.schemas import LoginRequest, RegisterRequest, UserOut
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-# In-process sliding window, keyed by client IP.
-#
-# This is a deliberate 20-line answer to the brief's "basic rate limiting" rather than
-# a real one, and the limitation is worth naming because it's the same limitation the
-# realtime layer would have had if I'd used an in-memory pub/sub: it is PER PROCESS.
-# Run two uvicorn workers and an attacker gets 2x the budget. The fix is a shared
-# counter -- Redis, or a Postgres table with a window bucket -- and it's about an
-# hour's work. I spent that hour on the SSE replay path instead, which is the thing
-# the brief actually weights.
+# Sliding window per IP. Per-process, so this is only correct at one worker -- which is
+# what we run. Needs a shared counter to survive scaling out; noted in ARCHITECTURE.md.
 _attempts: dict[str, deque[float]] = defaultdict(deque)
 
-# Hashed once at import so the "no such user" branch of login does the same amount of
-# work as the "wrong password" branch. See the comment in login().
+# Keeps the "no such user" branch of login as slow as the "wrong password" one.
 _DUMMY_HASH = hash_password("this-hash-is-never-a-valid-password")
 
 
@@ -51,9 +43,9 @@ def _set_session_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         settings.cookie_name,
         token,
-        httponly=True,  # unreadable from JS, so XSS can't exfiltrate it
+        httponly=True,
         secure=settings.cookie_secure,
-        samesite="lax",  # blocks cross-site POSTs; see the Origin check in main.py
+        samesite="lax",  # plus the Origin check in main.py
         path="/",
         max_age=settings.access_token_ttl_minutes * 60,
     )
@@ -66,8 +58,7 @@ async def register(body: RegisterRequest, response: Response, conn: Conn) -> Use
             conn, body.email, hash_password(body.password), body.display_name.strip()
         )
     except asyncpg.UniqueViolationError:
-        # Let the database be the arbiter. A check-then-insert has a race window; the
-        # unique index doesn't.
+        # The unique index arbitrates; a check-then-insert would race.
         raise EmailTaken("An account with that email already exists.") from None
 
     _set_session_cookie(response, issue_token(user["id"]))
@@ -80,10 +71,8 @@ async def login(body: LoginRequest, request: Request, response: Response, conn: 
 
     user = await queries.get_user_by_email(conn, body.email)
 
-    # Same error, same shape, whether the email exists or the password is wrong --
-    # otherwise this endpoint is an account-enumeration oracle. Short-circuiting on
-    # `user is None` would leak the same fact through timing (a real Argon2 verify is
-    # ~50ms; skipping it is ~0), so hash against a dummy to keep the two paths even.
+    # Same answer either way, or this is an account-enumeration oracle. Short-circuiting
+    # on `user is None` would leak it through timing instead (~50ms vs ~0).
     password_hash = user["password_hash"] if user else _DUMMY_HASH
     password_ok = verify_password(body.password, password_hash)
 

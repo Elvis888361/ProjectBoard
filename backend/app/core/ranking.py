@@ -1,29 +1,11 @@
 """Fractional indexing for task ordering.
 
-A task's `position` is a base62 string. Positions sort lexicographically, and you
-can always generate a new key strictly between any two existing keys. That means a
-drag-and-drop writes exactly ONE row -- no renumbering the rest of the column, no
-multi-row transaction, no lock contention between two people dragging at once.
+Positions are base62 strings that sort lexicographically, so a drag writes one row
+instead of renumbering the column. Ported from Greenspan's `fractional-indexing`:
+https://observablehq.com/@dgreensp/implementing-fractional-indexing
 
-The alternative -- integer positions with renumber-on-insert -- is simpler to read
-but pushes the cost onto every write, and two concurrent moves in the same column
-either deadlock or produce duplicate positions. Jira threw away its linked-list
-ranker for exactly this reason and replaced it with LexoRank, which is this idea.
-
-This is a port of David Greenspan's `fractional-indexing` algorithm (the one used by
-Replicache and tldraw): https://observablehq.com/@dgreensp/implementing-fractional-indexing
-I ported it rather than pulling the dependency because it's ~100 lines and I wanted to
-be able to reason about the edge cases (see tests/test_ranking.py).
-
-Key layout: a key is an integer part followed by an optional fraction.
-  - The integer part's FIRST character encodes its own length, so keys stay
-    lexicographically sortable as plain strings even as magnitudes grow.
-    'a'..'z' => positive, total length 2..27.  'A'..'Z' => negative, length 27..2.
-  - Appending to the end of a column increments the integer part, so append -- by far
-    the most common operation -- produces a CONSTANT-length key. This is the whole
-    reason for the integer/fraction split; a naive "always take the midpoint of (0,1)"
-    scheme grows the key by a character on every single append.
-  - The fraction never ends in '0', so every key has exactly one representation.
+Key = integer part + optional fraction. The integer part's first char encodes its own
+length, which is what keeps append at a constant-length key.
 """
 
 from __future__ import annotations
@@ -62,8 +44,8 @@ def _validate(key: str) -> None:
     integer = _integer_part(key)
     if len(integer) != _integer_len(key[0]):
         raise InvalidPosition(f"invalid position: {key!r}")
-    fraction = key[len(integer) :]
-    if fraction.endswith(DIGITS[0]):
+    # A trailing zero would give the same value two spellings.
+    if key[len(integer) :].endswith(DIGITS[0]):
         raise InvalidPosition(f"position has a trailing zero: {key!r}")
 
 
@@ -83,7 +65,7 @@ def _increment_integer(x: str) -> str | None:
         if head == "Z":
             return "a" + DIGITS[0]
         if head == "z":
-            return None  # ran out of headroom; caller falls back to a fraction
+            return None  # out of headroom; caller falls back to a fraction
         h = chr(ord(head) + 1)
         if h > "a":
             digits.append(DIGITS[0])
@@ -120,14 +102,13 @@ def _decrement_integer(x: str) -> str | None:
 
 
 def _midpoint(a: str, b: str | None) -> str:
-    """Shortest fraction strictly between fractions `a` and `b` (b=None means 1.0)."""
+    """Shortest fraction strictly between `a` and `b`. b=None means 1.0."""
     if b is not None and a >= b:
         raise InvalidPosition(f"{a!r} >= {b!r}")
     if a.endswith(DIGITS[0]) or (b is not None and b.endswith(DIGITS[0])):
         raise InvalidPosition("fraction has a trailing zero")
 
     if b is not None:
-        # Strip the common prefix and recurse on the part that actually differs.
         n = 0
         while n < len(b) and (a[n] if n < len(a) else DIGITS[0]) == b[n]:
             n += 1
@@ -138,20 +119,18 @@ def _midpoint(a: str, b: str | None) -> str:
     digit_b = DIGITS.index(b[0]) if b else len(DIGITS)
 
     if digit_b - digit_a > 1:
-        # There's a spare digit between them; take it and stop.
         return DIGITS[math.floor(0.5 * (digit_a + digit_b) + 0.5)]
 
-    # Consecutive digits: we have to go one character deeper.
+    # Consecutive digits, so we have to go a character deeper.
     if b is not None and len(b) > 1:
         return b[:1]
     return DIGITS[digit_a] + _midpoint(a[1:] if a else "", None)
 
 
 def key_between(a: str | None, b: str | None) -> str:
-    """Generate a position strictly between `a` and `b`.
+    """A position strictly between `a` and `b`.
 
-    `a is None` means "before everything" (prepend); `b is None` means "after
-    everything" (append). Both None is the first task in an empty column.
+    a=None prepends, b=None appends, both None is the first task in a column.
     """
     if a is not None:
         _validate(a)
