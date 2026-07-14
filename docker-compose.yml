@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: taskboard
+      POSTGRES_PASSWORD: taskboard
+      POSTGRES_DB: taskboard
+    ports:
+      - "5432:5432"          # exposed so you can psql in and look at the events table
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskboard"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://taskboard:taskboard@db:5432/taskboard
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-not-for-production}
+      COOKIE_SECURE: "false"
+    depends_on:
+      db:
+        # Not just "started". The API runs migrations on boot, and racing an unready
+        # Postgres is the single most common reason a `docker compose up` demo dies on
+        # someone else's machine.
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  web:
+    build: ./frontend
+    depends_on:
+      - api
+    ports:
+      - "5173:80"
+
+volumes:
+  pgdata:
