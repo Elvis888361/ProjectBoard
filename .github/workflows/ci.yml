@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    # A service container, not testcontainers. The integration tests need a real
+    # Postgres (native enum, citext, BIGSERIAL, LISTEN/NOTIFY -- none of which a SQLite
+    # stand-in would exercise), and for a single database this is fewer moving parts:
+    # no Docker-in-Docker, and the health check gates the steps for us.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: taskboard
+          POSTGRES_PASSWORD: taskboard
+          POSTGRES_DB: taskboard_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check . && ruff format --check .
+
+      - name: Test
+        run: pytest -v
+        env:
+          DATABASE_URL: postgresql://taskboard:taskboard@localhost:5432/taskboard_test
+          JWT_SECRET: ci-secret-not-used-for-anything-real
+
+  frontend:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm test
+
+      # A build that fails is a deploy that fails. Cheaper to find out here.
+      - name: Build
+        run: npm run build
+
+  # The README promises `docker compose up` works from a clean clone. This is the only
+  # way to know that's still true -- it's the claim most likely to quietly rot, and the
+  # one a reviewer checks first.
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bring the whole stack up
+        run: docker compose up -d --build
+        env:
+          JWT_SECRET: ci-secret
+
+      - name: Wait for the API to report healthy
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/api/health | grep -q '"database":"ok"'; then
+              echo "API is up and can reach Postgres"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API never became healthy. Logs:"
+          docker compose logs
+          exit 1
+
+      - name: Check the SPA is served
+        run: curl -fsS http://localhost:5173 | grep -q '<div id="root">'
+
+      - if: always()
+        run: docker compose down -v
