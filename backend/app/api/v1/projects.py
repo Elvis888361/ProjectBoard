@@ -1,3 +1,5 @@
+"""Provides project, user, task, and activity API endpoint implementations."""
+
 from __future__ import annotations
 
 import uuid
@@ -20,27 +22,32 @@ router = APIRouter(tags=["projects"])
 
 @router.get("/users", response_model=list[UserOut])
 async def list_users(conn: Conn, _: CurrentUser) -> list[UserOut]:
+    # Retrieves all users available for project task assignments.
     return [UserOut(**dict(r)) for r in await queries.list_users(conn)]
 
 
 @router.get("/projects", response_model=list[ProjectOut])
 async def list_projects(conn: Conn, _: CurrentUser) -> list[ProjectOut]:
+    # Returns all projects with their associated task counts.
     return [ProjectOut(**dict(r)) for r in await queries.list_projects(conn)]
 
 
 @router.post("/projects", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
 async def create_project(body: ProjectCreate, conn: Conn, user: CurrentUser) -> ProjectOut:
+    # Creates a new project using validated user-provided information.
     row = await queries.create_project(conn, body.name, body.description, user["id"])
     return ProjectOut(**dict(row))
 
 
 @router.get("/projects/{project_id}", response_model=ProjectOut)
 async def get_project(project_id: uuid.UUID, conn: Conn, _: CurrentUser) -> ProjectOut:
+    # Retrieves project details using its unique project identifier.
     return ProjectOut(**dict(await queries.get_project(conn, project_id)))
 
 
 @router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(project_id: uuid.UUID, conn: Conn, _: CurrentUser) -> None:
+    # Deletes specified project from the database permanently.
     await queries.delete_project(conn, project_id)
 
 
@@ -53,7 +60,8 @@ async def list_tasks(
     status_filter: str | None = Query(default=None, alias="status"),
     assignee_id: uuid.UUID | None = None,
 ) -> list[TaskOut]:
-    await queries.get_project(conn, project_id)  # 404, not an empty board
+    # Retrieves project tasks with optional search and filtering capabilities.
+    await queries.get_project(conn, project_id)
     rows = await queries.list_tasks(
         conn, project_id, search=search, status=status_filter, assignee_id=assignee_id
     )
@@ -68,6 +76,7 @@ async def list_tasks(
 async def create_task(
     project_id: uuid.UUID, body: TaskCreate, conn: Conn, user: CurrentUser
 ) -> TaskOut:
+    # Creates new task within selected project and returns details.
     await queries.get_project(conn, project_id)
     row = await queries.create_task(
         conn,
@@ -89,7 +98,7 @@ async def project_activity(
     _: CurrentUser,
     limit: int = Query(default=50, le=200),
 ) -> list[ActivityOut]:
-    """Just a read of the event log, which the realtime layer needed anyway."""
+    """Returns recent project activity events from the application event log."""
     rows = await conn.fetch(
         """
         SELECT e.id, e.type, e.task_id, e.payload, e.created_at,

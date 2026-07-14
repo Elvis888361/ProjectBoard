@@ -7,18 +7,15 @@ export const taskKeys = {
   list: (projectId: string) => ['tasks', projectId] as const,
 }
 
-/** No Redux/Zustand: the board IS server state, which is what TanStack Query is for. */
 export function useTasks(projectId: string, filters: { search?: string; assignee_id?: string }) {
   return useQuery({
     queryKey: taskKeys.list(projectId),
     queryFn: () => api.tasks(projectId, filters),
-    // The stream keeps this fresh; polling would be redundant.
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   })
 }
 
-/** Same order as the server's `ORDER BY position, id`. Positions are strings. */
 export function tasksInColumn(tasks: Task[], status: TaskStatus): Task[] {
   return tasks
     .filter((t) => t.status === status)
@@ -28,9 +25,9 @@ export function tasksInColumn(tasks: Task[], status: TaskStatus): Task[] {
 interface MoveArgs {
   task: Task
   toStatus: TaskStatus
-  beforeId: string | null // land after this task; null = top of column
-  afterId: string | null // land before this task; null = bottom
-  optimisticPosition: string // where to draw it while the request is in flight
+  beforeId: string | null
+  afterId: string | null
+  optimisticPosition: string
 }
 
 export function useMoveTask(projectId: string, onConflict: (message: string) => void) {
@@ -42,8 +39,7 @@ export function useMoveTask(projectId: string, onConflict: (message: string) => 
       api.moveTask(task.id, task.version, toStatus, beforeId, afterId),
 
     onMutate: async ({ task, toStatus, optimisticPosition }: MoveArgs) => {
-      // A refetch already on the wire would land after our optimistic write and stomp
-      // it. Not optional.
+
       await queryClient.cancelQueries({ queryKey: key })
 
       const previous = queryClient.getQueryData<Task[]>(key)
@@ -61,7 +57,6 @@ export function useMoveTask(projectId: string, onConflict: (message: string) => 
       if (context?.previous) queryClient.setQueryData(key, context.previous)
 
       if (error instanceof ApiError && error.code === 'version_conflict') {
-        // The 409 carries current state, so repair the one card instead of refetching.
         const current = error.currentTask
         if (current) {
           queryClient.setQueryData<Task[]>(key, (tasks) =>
@@ -75,8 +70,6 @@ export function useMoveTask(projectId: string, onConflict: (message: string) => 
     },
 
     onSuccess: (serverTask) => {
-      // Take the server's position and version. Bumping the version also means the SSE
-      // echo of our own change gets dropped by the guard in useProjectStream.
       queryClient.setQueryData<Task[]>(key, (tasks) =>
         tasks?.map((t) => (t.id === serverTask.id ? serverTask : t)),
       )
@@ -88,8 +81,6 @@ export function useCreateTask(projectId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (task: Partial<Task>) => api.createTask(projectId, task),
-    // No optimistic insert. The server assigns the id; faking one buys ~200ms in
-    // exchange for a class of reconciliation bugs.
     onSuccess: (created) => {
       queryClient.setQueryData<Task[]>(taskKeys.list(projectId), (tasks) =>
         tasks ? [...tasks.filter((t) => t.id !== created.id), created] : [created],

@@ -30,9 +30,7 @@ export interface Task {
   assignee_id: string | null
   assignee_name: string | null
   due_date: string | null
-  /** Fractional index. Compare as a string; never parse it. */
   position: string
-  /** Sent with every mutation, and used to drop stale events. */
   version: number
   created_at: string
   updated_at: string
@@ -47,7 +45,6 @@ export interface ActivityEntry {
   created_at: string
 }
 
-/** Every non-2xx response from the API. */
 export interface ApiErrorBody {
   error: {
     code: string
@@ -66,7 +63,6 @@ export class ApiError extends Error {
     super(message)
   }
 
-  /** A 409 carries current server state, so the UI can reconcile without a refetch. */
   get currentTask(): Task | undefined {
     const details = this.details as { current?: Task } | undefined
     return details?.current

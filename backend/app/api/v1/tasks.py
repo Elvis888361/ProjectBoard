@@ -1,3 +1,5 @@
+"""Provides API endpoints for retrieving, updating, moving, and deleting tasks."""
+
 from __future__ import annotations
 
 import uuid
@@ -13,6 +15,7 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 @router.get("/{task_id}", response_model=TaskOut)
 async def get_task(task_id: uuid.UUID, conn: Conn, _: CurrentUser) -> TaskOut:
+    # Retrieves a task by its unique identifier from database.
     return TaskOut(**dict(await queries.get_task(conn, task_id)))
 
 
@@ -20,8 +23,8 @@ async def get_task(task_id: uuid.UUID, conn: Conn, _: CurrentUser) -> TaskOut:
 async def update_task(
     task_id: uuid.UUID, body: TaskUpdate, conn: Conn, user: CurrentUser
 ) -> TaskOut:
-    # exclude_unset is what makes this a real PATCH: unsent fields are left alone, not
-    # nulled. Hence the clear_* flags for the nullable ones.
+    """Updates task fields while preserving unspecified values and validating changes."""
+
     sent = body.model_dump(exclude_unset=True)
     fields: dict[str, object] = {}
 
@@ -42,6 +45,7 @@ async def update_task(
 
 @router.post("/{task_id}/move", response_model=TaskOut)
 async def move_task(task_id: uuid.UUID, body: TaskMove, conn: Conn, user: CurrentUser) -> TaskOut:
+    """Moves task between columns while maintaining correct board ordering."""
     row = await queries.move_task(
         conn,
         task_id,
@@ -56,4 +60,5 @@ async def move_task(task_id: uuid.UUID, body: TaskMove, conn: Conn, user: Curren
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_task(task_id: uuid.UUID, conn: Conn, user: CurrentUser) -> None:
+    # Deletes specified task from the database permanently.
     await queries.delete_task(conn, task_id, user["id"])

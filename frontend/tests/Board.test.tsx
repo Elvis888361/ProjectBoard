@@ -26,11 +26,6 @@ const task = (over: Partial<Task> & { id: string }): Task => ({
   ...over,
 })
 
-/**
- * Board takes tasks as a prop, but optimistic updates are written to the query cache --
- * so a static array would never show them. This subscribes to the cache the way
- * BoardPage does, which is what makes the assertions below mean anything.
- */
 function BoardHarness({ tasks, onConflict }: { tasks: Task[]; onConflict: () => void }) {
   const { data } = useQuery({
     queryKey: taskKeys.list('p1'),
@@ -76,7 +71,6 @@ describe('Board', () => {
     const todo = within(screen.getByRole('region', { name: 'Todo' }))
     const cards = todo.getAllByRole('button')
 
-    // By position, not array order. If this regresses, boards silently scramble.
     expect(cards[0]).toHaveTextContent('first')
     expect(cards[1]).toHaveTextContent('second')
 
@@ -84,7 +78,6 @@ describe('Board', () => {
   })
 
   it('moves the card immediately on drop, before the server responds', async () => {
-    // Never settles -- the point is that the UI doesn't wait.
     vi.mocked(api.moveTask).mockReturnValue(new Promise(() => {}))
     setup([task({ id: 'ship-it', status: 'todo', version: 3 })])
 
@@ -95,7 +88,6 @@ describe('Board', () => {
       expect(inProgress.getByText('ship-it')).toBeVisible()
     })
 
-    // Empty target column, so no neighbours either side.
     expect(api.moveTask).toHaveBeenCalledWith('ship-it', 3, 'in_progress', null, null)
   })
 
@@ -109,16 +101,12 @@ describe('Board', () => {
 
     dragCardToColumn('dragged', 'Done')
 
-    // Dropping on the column, not a card, appends.
     await waitFor(() =>
       expect(api.moveTask).toHaveBeenCalledWith('dragged', 1, 'done', 'bottom', null),
     )
   })
 
   it('rolls the card back and reports the conflict when the server rejects the move', async () => {
-    // Held open so the optimistic state is observable. An immediately-rejecting mock
-    // would roll back in the same tick, and this test would pass even with the
-    // optimistic update removed entirely.
     let reject!: (error: unknown) => void
     vi.mocked(api.moveTask).mockReturnValue(
       new Promise((_resolve, rej) => {
@@ -130,22 +118,18 @@ describe('Board', () => {
 
     dragCardToColumn('contested', 'In Progress')
 
-    // Optimistically lands in In Progress...
     await waitFor(() =>
       expect(
         within(screen.getByRole('region', { name: 'In Progress' })).getByText('contested'),
       ).toBeVisible(),
     )
 
-    // Someone else got there first.
     reject(
       new ApiError(409, 'version_conflict', 'This task was moved by someone else.', {
         current: task({ id: 'contested', status: 'done', version: 9 }),
       }),
     )
 
-    // ...then rolls back, and the user is told why. Reverting silently would be worse
-    // than not moving at all.
     await waitFor(() =>
       expect(
         within(screen.getByRole('region', { name: 'In Progress' })).queryByText('contested'),

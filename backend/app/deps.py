@@ -12,14 +12,20 @@ from app.core.errors import Unauthorized
 from app.db import queries
 from app.db.events import EventBroker
 
+"""Provides shared dependencies for database, authentication, and event broker access."""
+
 
 async def get_conn(request: Request) -> AsyncIterator[asyncpg.Connection]:
+    """Provides a reusable database connection for handling incoming API requests."""
+
     pool: asyncpg.Pool = request.app.state.pool
     async with pool.acquire() as conn:
         yield conn
 
 
 def get_broker(request: Request) -> EventBroker:
+    """Returns the application's shared event broker for real-time messaging."""
+
     return request.app.state.broker
 
 
@@ -31,15 +37,16 @@ async def current_user(
     conn: Conn,
     session: Annotated[str | None, Cookie(alias=get_settings().cookie_name)] = None,
 ) -> asyncpg.Record:
+    """Injects the authenticated user into protected route handlers automatically."""
+
     if not session:
         raise Unauthorized("Not signed in.")
 
-    from app.core.security import read_token  # avoids a config import cycle
+    from app.core.security import read_token
 
     user_id: uuid.UUID = read_token(session)
     user = await queries.get_user(conn, user_id)
     if user is None:
-        # Validly signed, but the user is gone. Signed out, not a 500.
         raise Unauthorized("Not signed in.")
     return user
 

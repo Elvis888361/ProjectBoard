@@ -19,12 +19,9 @@ export function LoginPage() {
         : api.register(email, password, displayName),
     onSuccess: (user) => {
       setError(null)
-      // Seed the cache rather than refetch: the response already IS the user.
       queryClient.setQueryData(['me'], user)
     },
     onError: (e) => {
-      // Show the server's message. It's deliberately vague on the login path ("Email or
-      // password is incorrect") so this screen can't be used to enumerate accounts.
       setError(e instanceof ApiError ? e.message : 'Something went wrong. Try again.')
     },
   })
@@ -38,7 +35,7 @@ export function LoginPage() {
           submit.mutate()
         }}
       >
-        <h1>ProjectBoard</h1>
+        <h1>TrelloBoard</h1>
         <p className="auth__sub">
           {mode === 'login' ? 'Sign in to your boards.' : 'Create an account.'}
         </p>

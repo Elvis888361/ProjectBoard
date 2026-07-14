@@ -1,8 +1,4 @@
-"""All SQL lives here. Routers do HTTP; this module does data.
-
-Every board mutation appends to the event log in the same transaction, so there's no
-path that changes a task without the change being broadcastable.
-"""
+"""Handles database queries and records real-time events for application changes."""
 
 from __future__ import annotations
 
@@ -24,12 +20,11 @@ TASK_COLUMNS = """
 """
 
 
-# --- users -------------------------------------------------------------------
-
-
 async def create_user(
     conn: asyncpg.Connection, email: str, password_hash: str, display_name: str
 ) -> asyncpg.Record:
+    """Creates a new user and returns stored user information."""
+
     return await conn.fetchrow(
         """
         INSERT INTO users (email, password_hash, display_name)
@@ -43,24 +38,27 @@ async def create_user(
 
 
 async def get_user_by_email(conn: asyncpg.Connection, email: str) -> asyncpg.Record | None:
+    """Retrieves user information using the provided email address."""
+
     return await conn.fetchrow(
         "SELECT id, email, display_name, password_hash FROM users WHERE email = $1", email
     )
 
 
 async def get_user(conn: asyncpg.Connection, user_id: uuid.UUID) -> asyncpg.Record | None:
+    """Retrieves a user using their unique identifier."""
+
     return await conn.fetchrow("SELECT id, email, display_name FROM users WHERE id = $1", user_id)
 
 
 async def list_users(conn: asyncpg.Connection) -> list[asyncpg.Record]:
-    # No roles, so everyone is assignable.
+    # Returns all users available for task assignment.
     return await conn.fetch("SELECT id, email, display_name FROM users ORDER BY display_name")
 
 
-# --- projects ----------------------------------------------------------------
-
-
 async def list_projects(conn: asyncpg.Connection) -> list[asyncpg.Record]:
+    """Retrieves all projects with their associated task counts."""
+
     return await conn.fetch(
         """
         SELECT p.id, p.name, p.description, p.created_by, p.created_at,
@@ -76,6 +74,8 @@ async def list_projects(conn: asyncpg.Connection) -> list[asyncpg.Record]:
 async def create_project(
     conn: asyncpg.Connection, name: str, description: str, user_id: uuid.UUID
 ) -> asyncpg.Record:
+    """Creates a new project and returns its details."""
+
     return await conn.fetchrow(
         """
         INSERT INTO projects (name, description, created_by)
@@ -89,6 +89,8 @@ async def create_project(
 
 
 async def get_project(conn: asyncpg.Connection, project_id: uuid.UUID) -> asyncpg.Record:
+    """Retrieves project details or raises not-found exception."""
+
     row = await conn.fetchrow(
         """
         SELECT p.id, p.name, p.description, p.created_by, p.created_at,
@@ -103,12 +105,11 @@ async def get_project(conn: asyncpg.Connection, project_id: uuid.UUID) -> asyncp
 
 
 async def delete_project(conn: asyncpg.Connection, project_id: uuid.UUID) -> None:
+    """Deletes specified project or raises not-found exception."""
+
     result = await conn.execute("DELETE FROM projects WHERE id = $1", project_id)
     if result == "DELETE 0":
         raise NotFound("Project not found.")
-
-
-# --- tasks -------------------------------------------------------------------
 
 
 async def list_tasks(
@@ -119,7 +120,8 @@ async def list_tasks(
     status: str | None = None,
     assignee_id: uuid.UUID | None = None,
 ) -> list[asyncpg.Record]:
-    # Positional params, not interpolation.
+    """Retrieves project tasks with optional filtering and searching."""
+
     clauses = ["t.project_id = $1"]
     params: list[Any] = [project_id]
 
@@ -146,6 +148,8 @@ async def list_tasks(
 
 
 async def get_task(conn: asyncpg.Connection, task_id: uuid.UUID) -> asyncpg.Record:
+    """Retrieves a specific task using its unique identifier."""
+
     row = await conn.fetchrow(
         f"""
         SELECT {TASK_COLUMNS}
@@ -165,10 +169,8 @@ async def _last_position(
     status: str,
     exclude: uuid.UUID | None = None,
 ) -> str | None:
-    """Bottom position in a column, or None if empty.
+    """Finds last task position within specified project status column."""
 
-    `exclude` skips the task being moved, so it can't end up its own neighbour.
-    """
     return await conn.fetchval(
         """
         SELECT position FROM tasks
@@ -194,7 +196,8 @@ async def create_task(
     due_date: date | None,
 ) -> asyncpg.Record:
     async with conn.transaction():
-        # Append to the bottom of the column.
+        """Creates task, assigns position, and records creation event."""
+
         position = key_between(await _last_position(conn, project_id, status), None)
 
         row = await conn.fetchrow(
@@ -233,7 +236,8 @@ async def update_task(
     version: int,
     fields: dict[str, Any],
 ) -> asyncpg.Record:
-    """Conditional on `version`, so a stale write can't clobber a fresh one."""
+    """Updates task fields while preventing conflicting concurrent modifications."""
+
     if not fields:
         return await get_task(conn, task_id)
 
@@ -258,8 +262,6 @@ async def update_task(
         )
 
         if updated is None:
-            # Zero rows is either "gone" or "someone wrote first", and the client needs
-            # to tell them apart. get_task raises NotFound if it's really gone.
             current = await get_task(conn, task_id)
             raise VersionConflict(
                 "This task was changed by someone else while you were editing it.",
@@ -288,11 +290,8 @@ async def move_task(
     before_id: uuid.UUID | None,
     after_id: uuid.UUID | None,
 ) -> asyncpg.Record:
-    """Move to `status`, between `before_id` and `after_id`.
+    """Moves task between columns while maintaining correct ordering."""
 
-    Neighbours are read inside the transaction, so the position is based on the order at
-    write time rather than whatever the client last saw.
-    """
     async with conn.transaction():
         task = await get_task(conn, task_id)
 
@@ -307,13 +306,9 @@ async def move_task(
             else None
         )
 
-        # No neighbours named means rank LAST, not "empty column". Getting this wrong
-        # hands every such task the first key, and they collide. Also covers a neighbour
-        # that vanished mid-drag -- appending beats a 409 the user can't act on.
         if before is None and after is None:
             before = await _last_position(conn, task["project_id"], status, exclude=task_id)
 
-        # Stale or reordered pair that doesn't bracket a gap.
         if before is not None and after is not None and before >= after:
             after = None
 
@@ -356,6 +351,8 @@ async def move_task(
 
 
 async def delete_task(conn: asyncpg.Connection, task_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    """Deletes task and records deletion event for subscribers."""
+
     async with conn.transaction():
         task = await get_task(conn, task_id)
         await conn.execute("DELETE FROM tasks WHERE id = $1", task_id)
@@ -370,11 +367,8 @@ async def delete_task(conn: asyncpg.Connection, task_id: uuid.UUID, user_id: uui
 
 
 def _task_payload(row: asyncpg.Record) -> dict[str, Any]:
-    """Serialise a task for the event log.
+    """Converts task record into event-ready dictionary payload."""
 
-    The whole task, not just an id: subscribers can apply it without a follow-up fetch,
-    and `version` riding along is what lets them drop stale events.
-    """
     return {
         "id": str(row["id"]),
         "project_id": str(row["project_id"]),
@@ -392,6 +386,8 @@ def _task_payload(row: asyncpg.Record) -> dict[str, Any]:
 
 
 def event_to_dict(row: asyncpg.Record) -> dict[str, Any]:
+    """Converts database event record into JSON-serializable dictionary."""
+
     payload = row["payload"]
     return {
         "id": row["id"],

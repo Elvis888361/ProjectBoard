@@ -1,10 +1,4 @@
-"""One error shape for the whole API:
-
-    {"error": {"code": "...", "message": "...", "details": {...}}}
-
-`code` is stable and the frontend switches on it. A 409 puts current server state in
-`details` so the client can reconcile without another round trip.
-"""
+"""Provides consistent API error handling and standardized error response formatting."""
 
 from __future__ import annotations
 
@@ -17,6 +11,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 class APIError(Exception):
+    """Base exception class for all custom API application errors."""
+
     status_code = status.HTTP_400_BAD_REQUEST
     code = "bad_request"
 
@@ -27,37 +23,39 @@ class APIError(Exception):
 
 
 class NotFound(APIError):
+    # Raised when requested resource cannot be found in database.
     status_code = status.HTTP_404_NOT_FOUND
     code = "not_found"
 
 
 class Unauthorized(APIError):
+    # Raised when user authentication fails or session becomes invalid.
     status_code = status.HTTP_401_UNAUTHORIZED
     code = "unauthorized"
 
 
 class EmailTaken(APIError):
+    # Raised when registration email already exists in system database.
     status_code = status.HTTP_409_CONFLICT
     code = "email_taken"
 
 
 class RateLimited(APIError):
+    # Raised when client exceeds allowed request rate limits.
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
     code = "rate_limited"
 
 
 class VersionConflict(APIError):
-    """Someone else wrote first.
-
-    409 and not 412: the version is in the body, so no conditional request header was
-    evaluated (RFC 9110).
-    """
+    """Raised when concurrent updates create conflicting task modifications."""
 
     status_code = status.HTTP_409_CONFLICT
     code = "version_conflict"
 
 
 def _body(code: str, message: str, details: Any = None) -> dict[str, Any]:
+    """Creates standardized JSON error response with optional additional details."""
+
     error: dict[str, Any] = {"code": code, "message": message}
     if details is not None:
         error["details"] = details
@@ -65,6 +63,8 @@ def _body(code: str, message: str, details: Any = None) -> dict[str, Any]:
 
 
 def install_error_handlers(app: FastAPI) -> None:
+    """Registers global exception handlers for consistent API error responses."""
+
     @app.exception_handler(APIError)
     async def _api_error(_: Request, exc: APIError) -> JSONResponse:
         return JSONResponse(
@@ -74,8 +74,6 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
-        # Pydantic's `ctx` can hold non-serialisable objects, so keep only what the
-        # client can act on.
         fields = [
             {"field": ".".join(str(p) for p in e["loc"][1:]), "message": e["msg"]}
             for e in exc.errors()

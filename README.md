@@ -1,181 +1,120 @@
 # ProjectBoard
 
-A small project & task board. Users sign up, create projects, and drag tasks between
-Todo / In Progress / Done. Two people on the same board see each other's changes
-without refreshing.
+A small project and task board. Sign up, create projects, drag tasks between Todo,
+In Progress and Done. Two people on the same board see each other's changes without
+refreshing.
 
-Monorepo: `backend/` (FastAPI + PostgreSQL), `frontend/` (React + Vite).
+Monorepo: `backend/` (FastAPI + Postgres), `frontend/` (React + Vite).
 
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — the real-time decision and the tradeoffs. Read this one.
-- **[AI_USAGE.md](AI_USAGE.md)** — what I used AI for, what I rejected, what I verified.
-
----
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the real-time decision and the tradeoffs,
+and [AI_USAGE.md](AI_USAGE.md) for how I used AI.
 
 ## Running it
 
-You need Docker. Nothing else.
+You need Docker, nothing else.
 
 ```bash
-git clone <this repo> && cd ProjectBoard
 docker compose up --build
 ```
 
-Then open **http://localhost:5173** and create an account.
+Open http://localhost:5173 and create an account. The schema is applied on first boot,
+and compose waits for Postgres to be healthy before starting the API, so a cold clone
+works.
 
-That's the whole setup. The database schema is applied automatically on first boot (the
-API runs its migrations at startup), and compose waits for Postgres to be healthy before
-starting the API — so there's no race on a cold clone.
+To see the real-time part, open the same board in two windows (one private, so you get
+a second session) and drag a card.
 
-To see the real-time behaviour, open the same board in two browser windows (use a
-private window for the second so you get a separate session), and drag a card in one.
-
-`JWT_SECRET` defaults to a dev value in `docker-compose.yml`. For anything real, set it:
+`JWT_SECRET` has a dev default in compose. For anything real, set it:
 
 ```bash
 JWT_SECRET=$(openssl rand -hex 32) docker compose up --build
 ```
 
-See [.env.example](.env.example) for every variable the app reads. No secrets are
-committed.
+Every variable the app reads is in [.env.example](.env.example). No secrets in the repo.
 
-### Running without Docker
-
-```bash
-# Postgres must be running and DATABASE_URL must point at it.
-cd backend
-pip install -e ".[dev]"
-JWT_SECRET=dev-secret uvicorn app.main:app --reload
-
-cd frontend
-npm install && npm run dev     # Vite proxies /api to :8000, so it's one origin
-```
-
----
+Without Docker: run Postgres, point `DATABASE_URL` at it, then `pip install -e ".[dev]"`
+and `uvicorn app.main:app --reload` in `backend/`, and `npm install && npm run dev` in
+`frontend/`. Vite proxies `/api` to the backend so it's one origin.
 
 ## Tests
 
 ```bash
-# Backend — needs a Postgres. 18 tests.
-cd backend
-createdb taskboard_test
+cd backend && createdb taskboard_test
 DATABASE_URL=postgresql://taskboard:taskboard@localhost:5432/taskboard_test \
-  JWT_SECRET=test-secret pytest
+  JWT_SECRET=test-secret pytest          # 18 tests
 
-# Frontend — 5 tests.
-cd frontend
-npm test
+cd frontend && npm test                  # 5 tests
 ```
 
 The backend tests boot a real uvicorn server against a real Postgres. That's deliberate:
-the in-process ASGI test transport **cannot** test this app, because it waits for the
-ASGI response to complete and an SSE stream never completes. Three of the tests drive an
-actual SSE connection through an actual `LISTEN/NOTIFY` round trip.
+httpx's in-process ASGI transport waits for the response to complete, and an SSE stream
+never completes, so it deadlocks on the events endpoint. Three of the tests drive a real
+SSE connection through a real `LISTEN/NOTIFY` round trip.
 
-**CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs on every push: ruff +
-pytest against a Postgres service container, eslint + tsc + vitest + a production build,
-and a third job that runs `docker compose up` and curls the health endpoint — because
-"it runs from a clean clone" is the claim most likely to quietly rot.
-
----
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs lint and tests on both
+sides, plus a job that does `docker compose up` and curls the health endpoint — "it runs
+from a clean clone" is the claim most likely to quietly rot.
 
 ## What's built
 
-Mapped to the brief's Section 3.
+**Must have — all done.** Registration and login (Argon2id, JWT in an httpOnly cookie),
+CRUD for projects and tasks, a board you can drag cards around, real-time propagation,
+validation and error handling on both sides, tests, one-command run, CI.
 
-### Must have — all done
+**Should have — all done.** Search and filter by text or assignee. Optimistic drag: the
+card moves instantly and rolls back with an explanation if the server rejects it. Rate
+limiting on login. Loading, error and empty states, plus a live/reconnecting badge.
 
-| | |
-|---|---|
-| Registration & login, authenticated API | Argon2id passwords, JWT in an httpOnly cookie |
-| CRUD for projects and tasks | Title, description, status, assignee, due date |
-| Board view, move tasks between statuses | Drag and drop, plus a keyboard path via the task dialog |
-| **Real-time propagation** | SSE + Postgres `LISTEN/NOTIFY`, with gap-free reconnect. [Why](ARCHITECTURE.md#the-real-time-decision) |
-| Validation & error handling, both sides | One error shape across the API; inline messages, toasts, and rollback in the UI |
-| Automated tests | 18 backend (unit + integration + real SSE), 5 frontend |
-| One-command local run | `docker compose up` |
-| CI running lint + tests | GitHub Actions, three jobs |
+**Could have — one done.** An activity log per project. It came almost free, because the
+real-time layer is built on an append-only event table, so the audit trail is a `SELECT`
+against a table that already had to exist. Skipped pagination (a board of tens of tasks
+doesn't need it) and dark mode.
 
-### Should have — all done
-
-- Search and filter by text or assignee
-- Optimistic UI: a dragged card moves instantly and reconciles with the server, rolling
-  back with an explanation if the server rejects it
-- Rate limiting on `POST /auth/login` (10 attempts/minute/IP)
-- Loading, error, and empty states throughout, plus a live/reconnecting indicator on the
-  board — a stale board is worse than an obviously broken one
-
-### Could have — one done
-
-- **Activity log** per project. This came almost free: the realtime layer is built on an
-  append-only event table, so the audit trail is a `SELECT` against a table that already
-  had to exist. `GET /api/v1/projects/{id}/activity`.
-
-Not done: pagination (a board of tens of tasks doesn't need it), dark mode.
-
-### Won't do — not built, per the brief
-
-Multi-tenant orgs, roles beyond "any logged-in user can edit", billing, email, mobile,
-offline support.
-
----
+**Won't do — not built, as asked.** Multi-tenancy, roles, billing, email, mobile, offline.
 
 ## Known gaps
 
-Written down rather than hidden. Fuller versions with "what I'd do instead" are in
-[ARCHITECTURE.md](ARCHITECTURE.md#known-gaps).
+Longer versions, with what I'd do instead, are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-- **No refresh-token rotation.** A single 12-hour session cookie. Losing it means losing
-  the session for 12 hours; there's no revocation. I chose the board over the auth
-  ceremony.
-- **The login rate limiter is in-process.** Correct at one worker, which is what we run.
-  At two workers an attacker gets double the budget. Needs a shared counter.
-- **Drag-and-drop is mouse-only.** Native HTML5 DnD, no library. The task dialog's status
-  select is the keyboard path, so nothing is unreachable — but the drag itself isn't
-  accessible, and a real product would use `dnd-kit` for that.
-- **Task positions can grow without bound** if someone inserts into the same gap
-  thousands of times. Bounded in practice by human dragging speed; a column-renumber
-  endpoint is the fix and is ~15 lines. Not built.
-- **Untested:** the rate limiter (it's module state — testing it means sleeping or
-  reaching into a private deque), and the SSE reconnect *backoff* (the browser owns it;
-  I verified replay-after-reconnect, which is the part I own).
-
----
+- **No refresh-token rotation.** One 12-hour session cookie, no revocation. I chose the
+  board over the auth ceremony.
+- **The login rate limiter is per-process.** Correct at one worker, which is what we run.
+  At two, an attacker gets double the budget.
+- **Drag and drop is mouse-only.** Native HTML5 DnD, no library. The task dialog has a
+  status select, so nothing is unreachable by keyboard, but the drag itself isn't
+  accessible. This is the gap I'm least comfortable with.
+- **Task positions can grow** if something inserts into the same gap thousands of times.
+  Not reachable by hand. A renumber endpoint fixes it; ~15 lines, not built.
+- **Untested:** the rate limiter (it's module state) and the SSE reconnect backoff (the
+  browser owns it — I tested the replay that follows it, which is the part I own).
 
 ## API
 
-`/api/v1`, versioned from the start. Interactive docs at **http://localhost:8000/api/docs**.
+`/api/v1`. Interactive docs at http://localhost:8000/api/docs.
 
-Every error, without exception, looks like this:
+Every error looks the same:
 
 ```json
-{ "error": { "code": "version_conflict", "message": "...", "details": { "current": {...} } } }
+{ "error": { "code": "version_conflict", "message": "...", "details": { "current": {} } } }
 ```
 
-`code` is stable and machine-readable; the frontend switches on it. A `409` carries the
-current server state in `details`, so a client that lost a race can reconcile without a
-second round trip.
+`code` is stable and the frontend switches on it. A 409 carries the current server state
+so a client that lost a race can reconcile without another round trip.
 
 ```
-POST   /api/v1/auth/register            201  sets session cookie
-POST   /api/v1/auth/login               200  rate limited
-POST   /api/v1/auth/logout              204
-GET    /api/v1/auth/me                  200 | 401
-GET    /api/v1/users                    200  everyone is assignable (no roles, per brief)
+POST   /auth/register  /auth/login  /auth/logout      GET /auth/me
+GET    /users
 
-GET    /api/v1/projects                 200
-POST   /api/v1/projects                 201
-GET    /api/v1/projects/{id}            200 | 404
-DELETE /api/v1/projects/{id}            204
+GET    /projects                POST   /projects
+GET    /projects/{id}           DELETE /projects/{id}
+GET    /projects/{id}/tasks     POST   /projects/{id}/tasks
+GET    /projects/{id}/activity
+GET    /projects/{id}/events    <- text/event-stream, the real-time channel
 
-GET    /api/v1/projects/{id}/tasks      200  ?search= &status= &assignee_id=
-POST   /api/v1/projects/{id}/tasks      201
-GET    /api/v1/projects/{id}/activity   200  the event log, read back
-GET    /api/v1/projects/{id}/events     200  text/event-stream  <- the realtime channel
+GET    /tasks/{id}
+PATCH  /tasks/{id}              409 on a stale version
+POST   /tasks/{id}/move         409 on a stale version
+DELETE /tasks/{id}
 
-GET    /api/v1/tasks/{id}               200 | 404
-PATCH  /api/v1/tasks/{id}               200 | 409  requires `version`
-POST   /api/v1/tasks/{id}/move          200 | 409  requires `version`; names neighbours, not a position
-DELETE /api/v1/tasks/{id}               204
-
-GET    /api/health                      200 | 503  checks Postgres, not just the process
+GET    /api/health              checks Postgres, not just the process
 ```

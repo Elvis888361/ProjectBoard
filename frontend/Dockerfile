@@ -1,6 +1,3 @@
-# Multi-stage: node builds, nginx serves. The runtime image has no node, no npm, and
-# no source -- just static files and a web server, which is a much smaller thing to
-# keep patched.
 FROM node:20-alpine AS build
 
 WORKDIR /app

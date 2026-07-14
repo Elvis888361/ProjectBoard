@@ -12,11 +12,6 @@ RUN pip install --no-cache-dir -e ".[dev]"
 
 EXPOSE 8000
 
-# One worker. N>1 works (NOTIFY carries events between them), but at this scale one is
-# plenty and it makes the in-memory rate limiter actually correct.
-#
-# The graceful-shutdown bound matters: an SSE stream never completes, so uvicorn would
-# otherwise wait forever on SIGTERM. Cut them; EventSource reconnects and replays.
 CMD ["uvicorn", "app.main:app", \
      "--host", "0.0.0.0", "--port", "8000", \
      "--workers", "1", \

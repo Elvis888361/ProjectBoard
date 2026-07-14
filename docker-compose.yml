@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: taskboard
       POSTGRES_DB: taskboard
     ports:
-      - "5432:5432"   # exposed so you can psql in and look at the events table
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +23,6 @@ services:
       COOKIE_SECURE: "false"
     depends_on:
       db:
-        # Not just "started" -- the API migrates on boot and would race an unready db.
         condition: service_healthy
     ports:
       - "8000:8000"

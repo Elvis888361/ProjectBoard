@@ -9,8 +9,6 @@ import './styles.css'
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // One retry, not three. If the API is down, three rounds of exponential backoff
-      // just means the user stares at a spinner for eight seconds before being told.
       retry: 1,
       refetchOnWindowFocus: false,
     },

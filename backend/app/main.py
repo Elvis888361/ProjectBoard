@@ -14,6 +14,8 @@ from app.core.errors import install_error_handlers
 from app.db.events import EventBroker
 from app.db.pool import create_pool, run_migrations
 
+"""Configures application startup, security, routing, middleware, and health monitoring services."""
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s: %(message)s")
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -21,6 +23,8 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Initializes database and event broker during application startup and shutdown."""
+
     app.state.pool = await create_pool()
     await run_migrations(app.state.pool)
 
@@ -46,11 +50,8 @@ install_error_handlers(app)
 
 @app.middleware("http")
 async def csrf_origin_check(request: Request, call_next):
-    """Reject cross-site writes.
+    """Blocks unauthorized cross-origin write requests for improved application security."""
 
-    Cookie auth means the browser attaches the session to anything hitting this origin.
-    SameSite=Lax covers the common cases but is defence-in-depth, not the control.
-    """
     if request.method not in SAFE_METHODS:
         origin = request.headers.get("origin")
         if origin:
@@ -68,8 +69,6 @@ async def csrf_origin_check(request: Request, call_next):
     return await call_next(request)
 
 
-# Empty in dev and in compose: the frontend is proxied, so it's all same-origin and
-# there's no CORS at all. Here for a split-origin deploy.
 if get_settings().cors_origins:
     app.add_middleware(
         CORSMiddleware,
@@ -87,8 +86,8 @@ app.include_router(stream.router, prefix="/api/v1")
 
 @app.get("/api/health", tags=["ops"])
 async def health(request: Request) -> dict[str, object]:
-    """Touches the database. A health check that doesn't only tells you the process is
-    up, which you already knew."""
+    """Checks database connectivity and reports current application health status."""
+
     try:
         async with request.app.state.pool.acquire() as conn:
             await conn.fetchval("SELECT 1")

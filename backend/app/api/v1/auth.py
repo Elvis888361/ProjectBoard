@@ -1,3 +1,5 @@
+"""Provides authentication endpoints for registration, login, logout, and user sessions."""
+
 from __future__ import annotations
 
 import time
@@ -16,15 +18,14 @@ from app.schemas import LoginRequest, RegisterRequest, UserOut
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-# Sliding window per IP. Per-process, so this is only correct at one worker -- which is
-# what we run. Needs a shared counter to survive scaling out; noted in ARCHITECTURE.md.
 _attempts: dict[str, deque[float]] = defaultdict(deque)
 
-# Keeps the "no such user" branch of login as slow as the "wrong password" one.
 _DUMMY_HASH = hash_password("this-hash-is-never-a-valid-password")
 
 
 def _check_rate_limit(request: Request) -> None:
+    """Limits repeated login attempts to prevent brute-force authentication attacks."""
+
     settings = get_settings()
     client = request.client.host if request.client else "unknown"
     now = time.monotonic()
@@ -39,13 +40,15 @@ def _check_rate_limit(request: Request) -> None:
 
 
 def _set_session_cookie(response: Response, token: str) -> None:
+    """Stores secure authentication token inside user's session cookie."""
+
     settings = get_settings()
     response.set_cookie(
         settings.cookie_name,
         token,
         httponly=True,
         secure=settings.cookie_secure,
-        samesite="lax",  # plus the Origin check in main.py
+        samesite="lax",
         path="/",
         max_age=settings.access_token_ttl_minutes * 60,
     )
@@ -53,12 +56,13 @@ def _set_session_cookie(response: Response, token: str) -> None:
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def register(body: RegisterRequest, response: Response, conn: Conn) -> UserOut:
+    """Registers new user, creates account, and starts authenticated session."""
+
     try:
         user = await queries.create_user(
             conn, body.email, hash_password(body.password), body.display_name.strip()
         )
     except asyncpg.UniqueViolationError:
-        # The unique index arbitrates; a check-then-insert would race.
         raise EmailTaken("An account with that email already exists.") from None
 
     _set_session_cookie(response, issue_token(user["id"]))
@@ -67,12 +71,11 @@ async def register(body: RegisterRequest, response: Response, conn: Conn) -> Use
 
 @router.post("/login", response_model=UserOut)
 async def login(body: LoginRequest, request: Request, response: Response, conn: Conn) -> UserOut:
+    """Authenticates user credentials and creates secure login session."""
+
     _check_rate_limit(request)
 
     user = await queries.get_user_by_email(conn, body.email)
-
-    # Same answer either way, or this is an account-enumeration oracle. Short-circuiting
-    # on `user is None` would leak it through timing instead (~50ms vs ~0).
     password_hash = user["password_hash"] if user else _DUMMY_HASH
     password_ok = verify_password(body.password, password_hash)
 

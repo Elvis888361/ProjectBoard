@@ -10,9 +10,6 @@ import { ProjectsPage } from './pages/ProjectsPage'
 export function App() {
   const queryClient = useQueryClient()
 
-  // The session cookie is httpOnly, so the client genuinely cannot see whether it's
-  // signed in -- that's the point of httpOnly. `GET /auth/me` is the only way to ask,
-  // and a 401 here is a normal answer, not an error to retry.
   const me = useQuery({
     queryKey: ['me'],
     queryFn: api.me,

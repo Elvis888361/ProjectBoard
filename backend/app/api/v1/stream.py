@@ -1,5 +1,4 @@
-"""SSE stream. Events carry `id:`, so the browser sends Last-Event-ID on reconnect and
-we replay the gap from the events table."""
+"""Streams real-time project events to connected clients using Server-Sent Events."""
 
 from __future__ import annotations
 
@@ -33,7 +32,9 @@ async def project_events(
     user: CurrentUser,
     last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
 ) -> EventSourceResponse:
-    await queries.get_project(conn, project_id)  # 404 before opening a stream
+    """Streams project events while replaying missed updates after reconnection."""
+
+    await queries.get_project(conn, project_id)
 
     try:
         cursor = int(last_event_id) if last_event_id else 0
@@ -44,17 +45,12 @@ async def project_events(
         nonlocal cursor
         pool = request.app.state.pool
 
-        # Subscribe before replaying. The other order loses anything committed between
-        # the replay query and the subscribe; this way the worst case is a duplicate,
-        # which the cursor check below swallows.
         async with broker.subscribe(project_id) as queue:
             async with pool.acquire() as replay_conn:
                 for row in await read_events_since(replay_conn, project_id, cursor):
                     cursor = row["id"]
                     yield _sse(row)
 
-            # Hand back the cursor, so a client that missed nothing has an id to send
-            # next time instead of replaying the project's whole history.
             yield {
                 "event": "synced",
                 "id": str(cursor),
@@ -87,6 +83,8 @@ async def project_events(
 
 
 def _sse(row) -> dict:
+    """Formats database events into Server-Sent Events response structure."""
+
     event = queries.event_to_dict(row)
     return {
         "id": str(event["id"]),

@@ -1,10 +1,4 @@
-"""API integration tests.
-
-Covers the places where being wrong is both likely and silent: optimistic concurrency
-(the only path where two correct clients produce a wrong result), and the realtime path
-end to end. Not covered: every CRUD permutation, and the rate limiter -- see
-ARCHITECTURE.md for why.
-"""
+"""Tests API behaviour, concurrency, auth, and real-time event streaming."""
 
 from __future__ import annotations
 
@@ -14,23 +8,25 @@ import json
 import pytest
 from httpx import AsyncClient
 
-# Real server over a real socket -- see conftest.
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
 async def _create_task(client: AsyncClient, project: str, title: str) -> dict:
+    # Creates test task and returns created task information.
     res = await client.post(f"/api/v1/projects/{project}/tasks", json={"title": title})
     assert res.status_code == 201, res.text
     return res.json()
 
 
 async def test_requires_authentication(client: AsyncClient):
+    # Verifies protected endpoints require authenticated user access.
     res = await client.get("/api/v1/projects")
     assert res.status_code == 401
     assert res.json()["error"]["code"] == "unauthorized"
 
 
 async def test_login_does_not_reveal_whether_an_account_exists(client: AsyncClient):
+    # Ensures login never reveals whether user account exists.
     await client.post(
         "/api/v1/auth/register",
         json={"email": "real@example.com", "password": "correct-horse", "display_name": "R"},
@@ -43,12 +39,12 @@ async def test_login_does_not_reveal_whether_an_account_exists(client: AsyncClie
         "/api/v1/auth/login", json={"email": "ghost@example.com", "password": "nope-nope-nope"}
     )
 
-    # Identical, or the login form is an account-enumeration oracle.
     assert wrong_password.status_code == no_such_user.status_code == 401
     assert wrong_password.json() == no_such_user.json()
 
 
 async def test_create_task_appends_to_the_bottom_of_the_column(alice: AsyncClient, project: str):
+    # Verifies new tasks are appended to column bottom correctly.
     first = await _create_task(alice, project, "First")
     second = await _create_task(alice, project, "Second")
 
@@ -59,11 +55,11 @@ async def test_create_task_appends_to_the_bottom_of_the_column(alice: AsyncClien
 
 
 async def test_move_places_a_task_between_its_new_neighbours(alice: AsyncClient, project: str):
+    # Verifies task moves correctly between neighboring task positions.
     top = await _create_task(alice, project, "Top")
     bottom = await _create_task(alice, project, "Bottom")
     dragged = await _create_task(alice, project, "Dragged")
 
-    # Move Top and Bottom over first, so there's a real ordering to slot into.
     for task in (top, bottom):
         res = await alice.post(
             f"/api/v1/tasks/{task['id']}/move",
@@ -98,7 +94,7 @@ async def test_move_places_a_task_between_its_new_neighbours(alice: AsyncClient,
 
 
 async def test_a_stale_write_is_rejected_and_nothing_is_lost(alice: AsyncClient, project: str):
-    """The lost-update problem -- the whole reason `version` exists."""
+    """Verifies optimistic locking prevents conflicting task updates safely."""
     task = await _create_task(alice, project, "Contested")
     stale_version = task["version"]
 
@@ -108,7 +104,6 @@ async def test_a_stale_write_is_rejected_and_nothing_is_lost(alice: AsyncClient,
     assert first.status_code == 200
     assert first.json()["version"] == stale_version + 1
 
-    # Bob still holds the version he loaded, from before Alice's write.
     second = await alice.patch(
         f"/api/v1/tasks/{task['id']}", json={"version": stale_version, "title": "Bob's title"}
     )
@@ -117,7 +112,6 @@ async def test_a_stale_write_is_rejected_and_nothing_is_lost(alice: AsyncClient,
     assert body["error"]["code"] == "version_conflict"
     assert body["error"]["details"]["current"]["title"] == "Alice's title"
 
-    # Alice's write survived. This is the assertion that matters.
     current = await alice.get(f"/api/v1/tasks/{task['id']}")
     assert current.json()["title"] == "Alice's title"
 
@@ -125,11 +119,7 @@ async def test_a_stale_write_is_rejected_and_nothing_is_lost(alice: AsyncClient,
 async def _read_events(
     server: str, cookies, project: str, *, last_event_id: str | None = None, until: str
 ) -> list[dict]:
-    """Read a second user's stream until `until` arrives.
-
-    Hard timeout, because a stream stays open by design: without one a broken test hangs
-    rather than fails, and CI just sits there.
-    """
+    """Reads Server-Sent Events until specified event is received."""
     events: list[dict] = []
 
     async def read() -> None:
@@ -157,14 +147,11 @@ async def _read_events(
 async def test_a_change_is_pushed_to_a_client_watching_the_stream(
     alice: AsyncClient, project: str, server: str
 ):
-    """The core requirement: A writes, B sees it without refreshing.
-
-    A real SSE connection through a real LISTEN/NOTIFY round trip.
-    """
+    """Verifies realtime task updates reach connected clients immediately."""
     watcher = asyncio.create_task(
         _read_events(server, alice.cookies, project, until="task.created")
     )
-    await asyncio.sleep(0.4)  # subscribe before we write
+    await asyncio.sleep(0.4)
 
     await _create_task(alice, project, "Look at me")
 
@@ -181,11 +168,10 @@ async def test_a_change_is_pushed_to_a_client_watching_the_stream(
 async def test_a_reconnecting_client_replays_exactly_what_it_missed(
     alice: AsyncClient, project: str, server: str
 ):
-    """Reconnect with no gap and no full refetch -- the payoff of the cursor."""
+    """Verifies reconnecting clients receive only missed events."""
     await _create_task(alice, project, "Before you left")
     missed = await _create_task(alice, project, "While you were gone")
 
-    # The browser reconnecting, last having seen event 1.
     replayed = await _read_events(server, alice.cookies, project, last_event_id="1", until="synced")
 
     assert len(replayed) == 1, f"expected exactly the one missed event, got {len(replayed)}"
@@ -194,11 +180,7 @@ async def test_a_reconnecting_client_replays_exactly_what_it_missed(
 
 
 async def test_a_caught_up_client_replays_nothing(alice: AsyncClient, project: str, server: str):
-    """The other half of the contract: miss nothing, get nothing.
-
-    Without the `synced` marker, a client with no id to send would replay the project's
-    whole history on every reconnect.
-    """
+    """Verifies synchronized clients receive no duplicate replayed events."""
     await _create_task(alice, project, "Only event")
 
     replayed = await _read_events(server, alice.cookies, project, last_event_id="1", until="synced")
@@ -206,6 +188,7 @@ async def test_a_caught_up_client_replays_nothing(alice: AsyncClient, project: s
 
 
 async def test_the_event_log_doubles_as_an_activity_feed(alice: AsyncClient, project: str):
+    """Verifies event log correctly powers project activity feed."""
     task = await _create_task(alice, project, "Ship it")
     await alice.post(
         f"/api/v1/tasks/{task['id']}/move",

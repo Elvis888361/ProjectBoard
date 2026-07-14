@@ -1,10 +1,4 @@
-"""Test fixtures.
-
-Real Postgres (the app leans on citext, a native enum, BIGSERIAL and LISTEN/NOTIFY), and
-a real uvicorn server rather than httpx's ASGITransport -- that transport awaits the ASGI
-app to completion, and an SSE stream never completes, so it deadlocks on the events
-endpoint. Fifteen lines to boot a real socket, and the streaming path gets tested.
-"""
+"""Provides shared test fixtures for integration and API endpoint testing."""
 
 from __future__ import annotations
 
@@ -22,7 +16,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("JWT_SECRET", "test-secret-at-least-32-bytes-long-for-hs256")
 
-from app.main import app  # noqa: E402  (must import after the env vars above)
+from app.main import app
 
 
 def _free_port() -> int:
@@ -33,11 +27,10 @@ def _free_port() -> int:
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def server() -> str:
-    """A real uvicorn server for the whole test session."""
+    """Starts and manages temporary FastAPI server during integration tests."""
     port = _free_port()
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", lifespan="on")
     instance = uvicorn.Server(config)
-    # Don't let uvicorn grab SIGINT/SIGTERM -- pytest needs them.
     instance.install_signal_handlers = lambda: None
 
     task = asyncio.create_task(instance.serve())
@@ -52,8 +45,7 @@ async def server() -> str:
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def client(server: str) -> AsyncClient:
-    # RESTART IDENTITY resets the events sequence, so the replay test can assert on a
-    # concrete Last-Event-ID.
+    # Creates reusable HTTP client and resets database before tests.
     pool: asyncpg.Pool = app.state.pool
     async with pool.acquire() as conn:
         await conn.execute("TRUNCATE events, tasks, projects, users RESTART IDENTITY CASCADE")
@@ -64,7 +56,7 @@ async def client(server: str) -> AsyncClient:
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def alice(client: AsyncClient) -> AsyncClient:
-    """Signed in. httpx's cookie jar carries the session, same as a browser."""
+    """Registers authenticated test user for protected endpoint testing."""
     res = await client.post(
         "/api/v1/auth/register",
         json={

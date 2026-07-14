@@ -25,7 +25,6 @@ body {
 h1 { font-size: 22px; margin: 0; }
 h2 { font-size: 15px; margin: 0; }
 
-/* --- chrome --- */
 
 .nav {
   display: flex;
@@ -57,8 +56,6 @@ h2 { font-size: 15px; margin: 0; }
 }
 .back:hover { color: var(--accent); }
 
-/* Connection state. Deliberately visible: a board that has silently stopped receiving
-   updates looks exactly like a board where nothing is happening. */
 .stream {
   font-size: 12px;
   padding: 4px 10px;
@@ -68,8 +65,6 @@ h2 { font-size: 15px; margin: 0; }
 .stream--live { background: #dcfce7; color: #15803d; }
 .stream--connecting,
 .stream--reconnecting { background: #fef3c7; color: #b45309; }
-
-/* --- toolbar --- */
 
 .toolbar {
   display: flex;
@@ -189,7 +184,6 @@ input:focus, select:focus, textarea:focus {
 .due--soon { color: var(--warn); }
 .due--later { color: var(--muted); }
 
-/* The insertion indicator during a drag. */
 .drop-line {
   height: 2px;
   background: var(--accent);
@@ -197,7 +191,6 @@ input:focus, select:focus, textarea:focus {
   margin: 2px 0;
 }
 
-/* --- projects --- */
 
 .projects { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .projects__item {
@@ -219,13 +212,11 @@ input:focus, select:focus, textarea:focus {
 }
 .projects__item span { color: var(--muted); font-size: 13px; }
 
-/* --- states --- */
 
 .state { text-align: center; padding: 60px 20px; color: var(--muted); }
 .state--error { color: var(--danger); }
 .state--empty h2 { font-size: 18px; color: var(--text); margin-bottom: 6px; }
 
-/* --- dialog --- */
 
 .backdrop {
   position: fixed;
@@ -253,7 +244,6 @@ input:focus, select:focus, textarea:focus {
 .dialog__actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 .spacer { flex: 1; }
 
-/* --- auth --- */
 
 .auth { display: grid; place-items: center; min-height: 100vh; padding: 20px; }
 .auth__card {
@@ -291,7 +281,6 @@ input:focus, select:focus, textarea:focus {
   cursor: pointer;
 }
 
-/* --- toast --- */
 
 .toast {
   position: fixed;

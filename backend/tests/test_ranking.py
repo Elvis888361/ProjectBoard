@@ -1,11 +1,4 @@
-"""Unit tests for fractional indexing.
-
-The only real algorithm in the app, and its failure mode is nasty -- a subtly wrong key
-generator doesn't crash, it quietly scrambles everyone's board.
-
-One invariant: after any sequence of moves, sorting by the keys reproduces the order the
-user asked for.
-"""
+"""Tests fractional indexing algorithm ensuring correct, stable task ordering behavior."""
 
 import random
 
@@ -28,8 +21,7 @@ def test_append_keeps_keys_ordered():
 
 
 def test_append_does_not_grow_the_key():
-    """The reason for the integer/fraction split. A naive midpoint scheme would add a
-    character per append, and append is the commonest operation on a board."""
+    """Ensures repeated appends keep generated position keys compact."""
     prev = None
     for _ in range(1000):
         prev = key_between(prev, None)
@@ -53,19 +45,18 @@ def test_insert_between_two_keys():
 
 
 def test_repeated_insert_into_the_same_gap_stays_ordered():
-    """The pathological case -- always insert at the same spot. Keys get long; they must
-    not get wrong."""
+    """Verifies repeated inserts maintain correct ordering within identical gaps."""
     lo = key_between(None, None)
     hi = key_between(lo, None)
     for _ in range(200):
         mid = key_between(lo, hi)
         assert lo < mid < hi
-        hi = mid  # squeeze into the same gap again
+        hi = mid
 
 
 def test_random_moves_preserve_order():
     """Fuzz: random inserts, then assert ORDER BY position reproduces the list."""
-    rng = random.Random(1234)  # seeded, so a failure is reproducible
+    rng = random.Random(1234)
     column: list[str] = []
 
     for _ in range(300):
@@ -86,6 +77,5 @@ def test_rejects_reversed_bounds():
 
 
 def test_rejects_a_malformed_position():
-    # Fail loudly rather than write an unsortable key into tasks.
     with pytest.raises(InvalidPosition):
         key_between("!!not-a-key", None)

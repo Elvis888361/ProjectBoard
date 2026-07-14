@@ -27,9 +27,6 @@ export function BoardPage() {
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => api.project(projectId) })
   const users = useQuery({ queryKey: ['users'], queryFn: api.users })
 
-  // Filtered client-side even though the API supports it, so the SSE stream stays the
-  // only writer of board state -- otherwise every keystroke races the event stream for
-  // the same cache entry. Fine for a board of a few hundred tasks.
   const tasksQuery = useTasks(projectId, {})
 
   const filtered = useMemo(() => {
@@ -83,8 +80,6 @@ export function BoardPage() {
           <h1>{project.data?.name}</h1>
         </div>
 
-        {/* A silently stale board is worse than an obviously broken one; people act on
-            it. */}
         <span className={`stream stream--${streamStatus}`} role="status">
           {streamStatus === 'live' ? 'Live' : 'Reconnecting…'}
         </span>

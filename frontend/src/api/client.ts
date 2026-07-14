@@ -13,8 +13,6 @@ const BASE = '/api/v1'
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
-    // The session is an httpOnly cookie, so there's no token to attach by hand. Proxied
-    // to one origin in both dev and prod, hence same-origin rather than include.
     credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
@@ -90,7 +88,6 @@ export const api = {
       body: JSON.stringify({ version, ...fields }),
     }),
 
-  /** Relational: name the neighbours, the server computes the position. */
   moveTask: (
     taskId: string,
     version: number,
