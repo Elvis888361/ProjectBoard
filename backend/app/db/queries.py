@@ -410,10 +410,6 @@ def _task_payload(row: asyncpg.Record) -> dict[str, Any]:
     }
 
 
-def task_to_dict(row: asyncpg.Record) -> dict[str, Any]:
-    return dict(row)
-
-
 def event_to_dict(row: asyncpg.Record) -> dict[str, Any]:
     payload = row["payload"]
     return {

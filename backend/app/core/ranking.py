@@ -34,11 +34,6 @@ DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 ZERO = "a0"
 SMALLEST_INTEGER = "A00000000000000000000000000"
 
-# Past this the key is getting silly and something pathological is going on (a bot
-# inserting at the same spot forever). Jira blocks re-ranking at 254 chars; we just
-# warn, because at our scale a human cannot reach this.
-KEY_LENGTH_WARN_THRESHOLD = 50
-
 
 class InvalidPosition(ValueError):
     pass
