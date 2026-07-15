@@ -81,18 +81,6 @@ Presence, live cursors, or drag in progress previews those are genuinely two-way
 
 `events.task_id` is deliberately **not** a foreign key. Events outlive the tasks they describe "Alice deleted 'Ship it'" has to survive the task's deletion.
 
-### Why `position` is a string
-
-It's a base62 fractional index. Positions sort lexicographically and you can always generate a key strictly between any two, so **a drag writes exactly one row.**
-
-Integer positions with renumber on insert are easier to read and worse in every way that matters: every move becomes an O(n) multi row write, and two concurrent moves in the same column deadlock or collide. Jira threw away its linked-list ranker for exactly this and built LexoRank, which is this idea. Trello uses floats and renumbers a window of cards when they get too close. Figma's fractional index is a string precisely to dodge that.
-
-I ported Greenspan's algorithm (the one behind Replicache and tldraw) rather than take the dependency it's ~100 lines and I wanted to understand the edges. It's the most tested thing in the repo, including a seeded fuzz test: 300 random inserts, then assert sorting by the keys still reproduces the board.
-
-The subtlety worth knowing is that the key has an integer part *and* a fraction, and the integer part's first character encodes its own length. That's what makes *append* produce a constant length key. A naive midpoint-of-(0,1) scheme grows the key by a character on every append, and append is the commonest operation on a board. There's a test for exactly that: 1000 appends, key stays under 5 characters.
-
-**Where it breaks:** inserting into the same gap over and over grows the key by about a character each time. A human dragging cards will never get there; a bulk import would. The fix is a renumber endpoint that regenerates a column's keys in one transaction, ~15 lines. I chose a button I could press over a cron job I'd never watch. Not built.
-
 ## Two people, one card
 
 Every task has a `version`, and every write is conditional:
