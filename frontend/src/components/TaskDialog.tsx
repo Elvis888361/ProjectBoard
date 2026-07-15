@@ -18,8 +18,6 @@ export function TaskDialog({ task, users, onSave, onDelete, onClose, saving }: P
   const [assignee, setAssignee] = useState(task.assignee_id ?? '')
   const [due, setDue] = useState(task.due_date ?? '')
 
-  // Someone else editing this task changes the prop under us. Re-sync, or the user
-  // saves a form built on a dead version and eats a 409 they can't act on.
   useEffect(() => {
     setTitle(task.title)
     setDescription(task.description)
@@ -39,7 +37,6 @@ export function TaskDialog({ task, users, onSave, onDelete, onClose, saving }: P
     const trimmed = title.trim()
     if (!trimmed) return
 
-    // Only what changed.
     const fields: Record<string, unknown> = {}
     if (trimmed !== task.title) fields.title = trimmed
     if (description !== task.description) fields.description = description
@@ -91,7 +88,6 @@ export function TaskDialog({ task, users, onSave, onDelete, onClose, saving }: P
 
           <div className="dialog__row">
             <label>
-              {/* The keyboard path for moving a task -- drag-and-drop is mouse-only. */}
               Status
               <select value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)}>
                 {STATUSES.map((s) => (

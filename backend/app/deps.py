@@ -1,3 +1,5 @@
+"""Provides shared dependencies for database, authentication, and event broker access."""
+
 from __future__ import annotations
 
 import uuid
@@ -11,8 +13,6 @@ from app.core.config import get_settings
 from app.core.errors import Unauthorized
 from app.db import queries
 from app.db.events import EventBroker
-
-"""Provides shared dependencies for database, authentication, and event broker access."""
 
 
 async def get_conn(request: Request) -> AsyncIterator[asyncpg.Connection]:

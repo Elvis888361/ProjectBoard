@@ -1,4 +1,4 @@
-"""Connection pool and migration runner. No ORM -- see ARCHITECTURE.md."""
+"""Creates database connections and automatically applies pending database schema migrations."""
 
 from __future__ import annotations
 
@@ -15,22 +15,20 @@ MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 
 
 async def create_pool() -> asyncpg.Pool:
+    """Creates and configures reusable PostgreSQL database connection pool for application."""
+
     settings = get_settings()
     return await asyncpg.create_pool(
         settings.database_url,
         min_size=2,
         max_size=10,
-        # Would need to be 0 behind a transaction-mode pooler.
         statement_cache_size=100,
     )
 
 
 async def run_migrations(pool: asyncpg.Pool) -> None:
-    """Apply any unapplied *.sql in migrations/, in filename order.
+    """Applies pending SQL migrations while tracking successfully executed migration files."""
 
-    No Alembic: its value is autogenerating diffs from ORM models, and there aren't any.
-    Each file runs in a transaction, so a failure rolls back rather than half-applying.
-    """
     async with pool.acquire() as conn:
         await conn.execute(
             """

@@ -12,7 +12,6 @@ interface Props {
   onConflict: (message: string) => void
 }
 
-/** Where the drop would land: above a specific card, or at the end of a column. */
 interface DropTarget {
   status: TaskStatus
   beforeIndex: number
@@ -23,8 +22,6 @@ export function Board({ projectId, tasks, onOpenTask, onConflict }: Props) {
   const [dragging, setDragging] = useState<Task | null>(null)
   const [target, setTarget] = useState<DropTarget | null>(null)
 
-  // Native HTML5 DnD, no library. Not keyboard accessible -- the dialog's status select
-  // is the keyboard path. A production board would use dnd-kit.
   const drop = (status: TaskStatus, beforeIndex: number) => {
     setTarget(null)
     const task = dragging
@@ -33,8 +30,6 @@ export function Board({ projectId, tasks, onOpenTask, onConflict }: Props) {
 
     const column = tasksInColumn(tasks, status).filter((t) => t.id !== task.id)
 
-    // Dragging a card two pixels shouldn't burn a round trip, bump a version, and fire
-    // an event at everyone else on the board.
     const currentIndex = tasksInColumn(tasks, status).findIndex((t) => t.id === task.id)
     if (task.status === status && (currentIndex === beforeIndex || currentIndex === beforeIndex - 1)) {
       return
@@ -48,7 +43,6 @@ export function Board({ projectId, tasks, onOpenTask, onConflict }: Props) {
       toStatus: status,
       beforeId: before?.id ?? null,
       afterId: after?.id ?? null,
-      // Only for the ~50ms the request is in flight; onSuccess takes the server's.
       optimisticPosition: keyBetween(before?.position ?? null, after?.position ?? null),
     })
   }
@@ -85,7 +79,6 @@ export function Board({ projectId, tasks, onOpenTask, onConflict }: Props) {
                   onDragOver={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    // Above or below, depending on which half the cursor is in.
                     const box = e.currentTarget.getBoundingClientRect()
                     const above = e.clientY < box.top + box.height / 2
                     setTarget({ status: id, beforeIndex: above ? index : index + 1 })

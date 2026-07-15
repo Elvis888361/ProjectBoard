@@ -1,10 +1,5 @@
-"""Append-only event log + a Postgres-backed broker.
-
-Writes append an event in the same transaction as the state change, then NOTIFY. Each
-SSE subscriber gets a queue; the listener fans notifications out to them.
-
-NOTIFY is a latency optimisation, not a delivery guarantee -- it's at-most-once with no
-replay. Correctness comes from the client's Last-Event-ID cursor. See ARCHITECTURE.md.
+"""Manages real-time events, notifications, and
+subscriber communication across application services.
 """
 
 from __future__ import annotations
@@ -26,7 +21,6 @@ log = logging.getLogger(__name__)
 
 CHANNEL = "board_events"
 
-# A subscriber that falls this far behind gets dropped. It reconnects and replays.
 SUBSCRIBER_QUEUE_SIZE = 100
 
 
@@ -39,7 +33,8 @@ async def append_event(
     actor_id: uuid.UUID | None,
     task_id: uuid.UUID | None = None,
 ) -> int:
-    """Must be called inside the transaction that made the change."""
+    """Stores event and notifies subscribers after successful database transaction."""
+
     event_id = await conn.fetchval(
         """
         INSERT INTO events (project_id, task_id, type, actor_id, payload)
@@ -52,8 +47,6 @@ async def append_event(
         actor_id,
         json.dumps(payload),
     )
-    # Payload is an id, never the row: the cap is 8000 bytes and overflowing it aborts
-    # the transaction. Fires on COMMIT, dropped on ROLLBACK.
     await conn.execute("SELECT pg_notify($1, $2)", CHANNEL, f"{project_id}:{event_id}")
     return event_id
 
@@ -61,6 +54,8 @@ async def append_event(
 async def read_events_since(
     conn: asyncpg.Connection, project_id: uuid.UUID, after_id: int, limit: int = 500
 ) -> list[asyncpg.Record]:
+    """Retrieves events for a project that occurred after a specific event ID, up to a limit."""
+
     return await conn.fetch(
         """
         SELECT e.id, e.type, e.task_id, e.payload, e.created_at,
@@ -78,7 +73,7 @@ async def read_events_since(
 
 
 class EventBroker:
-    """Owns the LISTEN connection and fans notifications out to local subscribers."""
+    """Manages event subscriptions and broadcasts database notifications to connected clients."""
 
     def __init__(self) -> None:
         self._subscribers: dict[uuid.UUID, set[asyncio.Queue[int]]] = defaultdict(set)
@@ -99,9 +94,6 @@ class EventBroker:
             await self._conn.close()
 
     async def _supervise(self) -> None:
-        # A dedicated connection, not a pooled one: asyncpg runs `UNLISTEN *` on release.
-        # asyncpg also won't auto-reconnect a standalone connection and has no TCP
-        # keepalive, so a dead listener sits there looking healthy. Hence the heartbeat.
         backoff = 1.0
         while not self._stopping.is_set():
             try:

@@ -1,3 +1,5 @@
+"""Configures application startup, security, routing, middleware, and health monitoring services."""
+
 from __future__ import annotations
 
 import logging
@@ -13,8 +15,6 @@ from app.core.config import get_settings
 from app.core.errors import install_error_handlers
 from app.db.events import EventBroker
 from app.db.pool import create_pool, run_migrations
-
-"""Configures application startup, security, routing, middleware, and health monitoring services."""
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s: %(message)s")
 

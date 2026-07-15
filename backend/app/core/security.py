@@ -1,9 +1,4 @@
-"""Password hashing and session tokens.
-
-pwdlib/PyJWT rather than the passlib/python-jose pair most tutorials show -- both are
-unmaintained and python-jose has CVE-2024-33663. The token rides in an httpOnly cookie
-because EventSource can't set an Authorization header; see ARCHITECTURE.md.
-"""
+"""Manages password security and user authentication using secure session tokens."""
 
 from __future__ import annotations
 
@@ -16,18 +11,21 @@ from pwdlib import PasswordHash
 from app.core.config import get_settings
 from app.core.errors import Unauthorized
 
-_hasher = PasswordHash.recommended()  # Argon2id
+_hasher = PasswordHash.recommended()
 
 
 def hash_password(password: str) -> str:
+    # Securely hashes user passwords before storing them in database.
     return _hasher.hash(password)
 
 
 def verify_password(password: str, password_hash: str) -> bool:
+    # Verifies entered password against the stored password hash.
     return _hasher.verify(password, password_hash)
 
 
 def issue_token(user_id: uuid.UUID) -> str:
+    # Generates secure JWT session token for authenticated users.
     settings = get_settings()
     now = datetime.now(UTC)
     payload = {
@@ -39,12 +37,13 @@ def issue_token(user_id: uuid.UUID) -> str:
 
 
 def read_token(token: str) -> uuid.UUID:
+    # Validates JWT token and returns authenticated user's unique identifier.
     settings = get_settings()
     try:
         payload = jwt.decode(
             token,
             settings.jwt_secret,
-            algorithms=[settings.jwt_algorithm],  # allowlist; never trust the token's alg
+            algorithms=[settings.jwt_algorithm],
             options={"require": ["exp", "sub"]},
         )
     except jwt.PyJWTError as exc:
