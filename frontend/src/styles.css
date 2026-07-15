@@ -427,3 +427,27 @@ input::placeholder { color: #9ca3af; }
 [data-theme='dark'] .auth__error { background: #2a1416; border-color: #5b2323; color: #fca5a5; }
 
 [data-theme='dark'] .toast { background: #e6e8ec; color: #16181d; }
+
+/* password field with show/hide toggle */
+.password-field { position: relative; margin-top: 4px; }
+.auth__card label .password-field input { margin-top: 0; width: 100%; padding-right: 42px; }
+.password-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 40px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 0 8px 8px 0;
+  opacity: 0.75;
+}
+.password-toggle:hover { opacity: 1; }
+.auth__hint { color: var(--muted); font-weight: 400; }
+.auth__hint--ok { color: #15803d; }
+[data-theme='dark'] .auth__hint--ok { color: #4ade80; }
