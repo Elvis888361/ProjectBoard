@@ -56,7 +56,7 @@ export function Board({ projectId, tasks, onOpenTask, onConflict }: Props) {
         return (
           <section
             key={id}
-            className={`column ${dragging ? 'column--dropzone' : ''}`}
+            className={`column column--${id} ${dragging ? 'column--dropzone' : ''}`}
             aria-label={label}
             onDragOver={(e) => {
               e.preventDefault()
@@ -68,6 +68,7 @@ export function Board({ projectId, tasks, onOpenTask, onConflict }: Props) {
             }}
           >
             <header className="column__header">
+              <span className="column__dot" aria-hidden />
               <h2>{label}</h2>
               <span className="column__count">{column.length}</span>
             </header>

@@ -35,7 +35,7 @@ export function LoginPage() {
           submit.mutate()
         }}
       >
-        <h1>TrelloBoard</h1>
+        <h1>ProjectBoard</h1>
         <p className="auth__sub">
           {mode === 'login' ? 'Sign in to your boards.' : 'Create an account.'}
         </p>

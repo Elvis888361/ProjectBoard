@@ -26,7 +26,10 @@ export function ProjectsPage() {
   return (
     <div className="page">
       <header className="page__header">
-        <h1>Projects</h1>
+        <div>
+          <h1>Projects</h1>
+          <p className="page__subtitle">Pick a board, or start a new one.</p>
+        </div>
       </header>
 
       <form
@@ -62,31 +65,52 @@ export function ProjectsPage() {
       {projects.data?.length === 0 && (
         <div className="state state--empty">
           <h2>No projects yet</h2>
-          <p>Create one above and start adding tasks.</p>
+          <p>Create your first board above and start adding tasks.</p>
         </div>
       )}
 
-      <ul className="projects">
-        {(projects.data ?? []).map((p) => (
-          <li key={p.id} className="projects__item">
-            <Link to={`/projects/${p.id}`}>
-              <h2>{p.name}</h2>
-              <span>
-                {p.task_count} {p.task_count === 1 ? 'task' : 'tasks'}
+      {(projects.data?.length ?? 0) > 0 && (
+        <div className="boards">
+          {(projects.data ?? []).map((p) => (
+            <Link key={p.id} to={`/projects/${p.id}`} className="board-card">
+              <span className="board-card__cover" style={{ background: coverGradient(p.name) }}>
+                <span className="board-card__initial">{p.name.trim()[0]?.toUpperCase() ?? '?'}</span>
               </span>
+              <span className="board-card__body">
+                <span className="board-card__name">{p.name}</span>
+                <span className="board-card__count">
+                  {p.task_count} {p.task_count === 1 ? 'task' : 'tasks'}
+                </span>
+              </span>
+              <button
+                className="board-card__delete"
+                aria-label={`Delete ${p.name}`}
+                onClick={(e) => {
+                  e.preventDefault()
+                  if (confirm(`Delete "${p.name}" and all its tasks?`)) remove.mutate(p.id)
+                }}
+              >
+                Delete
+              </button>
             </Link>
-            <button
-              className="btn btn--danger btn--small"
-              aria-label={`Delete ${p.name}`}
-              onClick={() => {
-                if (confirm(`Delete "${p.name}" and all its tasks?`)) remove.mutate(p.id)
-              }}
-            >
-              Delete
-            </button>
-          </li>
-        ))}
-      </ul>
+          ))}
+        </div>
+      )}
     </div>
   )
+}
+
+const COVERS = [
+  ['#2563eb', '#7c3aed'],
+  ['#0891b2', '#2563eb'],
+  ['#059669', '#0891b2'],
+  ['#d97706', '#db2777'],
+  ['#db2777', '#7c3aed'],
+  ['#475569', '#0f172a'],
+]
+function coverGradient(name: string): string {
+  let hash = 0
+  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) | 0
+  const [a, b] = COVERS[Math.abs(hash) % COVERS.length]
+  return `linear-gradient(135deg, ${a}, ${b})`
 }

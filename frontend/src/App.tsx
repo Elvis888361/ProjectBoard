@@ -3,12 +3,14 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { api } from './api/client'
 import { ApiError } from './api/types'
+import { useTheme } from './hooks/useTheme'
 import { BoardPage } from './pages/BoardPage'
 import { LoginPage } from './pages/LoginPage'
 import { ProjectsPage } from './pages/ProjectsPage'
 
 export function App() {
   const queryClient = useQueryClient()
+  const [theme, toggleTheme] = useTheme()
 
   const me = useQuery({
     queryKey: ['me'],
@@ -34,6 +36,14 @@ export function App() {
       <nav className="nav">
         <span className="nav__brand">ProjectBoard</span>
         <span className="nav__user">{me.data?.display_name}</span>
+        <button
+          className="btn btn--small btn--icon"
+          onClick={toggleTheme}
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        >
+          {theme === 'dark' ? '☀️' : '🌙'}
+        </button>
         <button className="btn btn--small" onClick={() => logout.mutate()}>
           Sign out
         </button>

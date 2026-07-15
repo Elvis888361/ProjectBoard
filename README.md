@@ -1,10 +1,10 @@
 # ProjectBoard
 
-A small project and task board. Sign up, create projects, and drag tasks between Todo,
-In Progress and Done. Two people on the same board see each other's changes without
+This is a small project more like how Trello works , Sign up, create projects, and drag tasks between Todo,
+In Progress and Done. Two or more people on the same board see each other's changes without
 refreshing.
 
-Monorepo: `backend/` (FastAPI + PostgreSQL), `frontend/` (React + Vite).
+Its one repo with everything(Monorepo): `backend/` (FastAPI + PostgreSQL), `frontend/` (React + Vite).
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and [AI_USAGE.md](AI_USAGE.md) for
 how I used AI.
 

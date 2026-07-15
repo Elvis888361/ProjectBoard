@@ -7,11 +7,6 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
-
-    # A service container, not testcontainers. The integration tests need a real
-    # Postgres (native enum, citext, BIGSERIAL, LISTEN/NOTIFY -- none of which a SQLite
-    # stand-in would exercise), and for a single database this is fewer moving parts:
-    # no Docker-in-Docker, and the health check gates the steps for us.
     services:
       postgres:
         image: postgres:16
@@ -77,13 +72,9 @@ jobs:
       - name: Test
         run: npm test
 
-      # A build that fails is a deploy that fails. Cheaper to find out here.
       - name: Build
         run: npm run build
 
-  # The README promises `docker compose up` works from a clean clone. This is the only
-  # way to know that's still true -- it's the claim most likely to quietly rot, and the
-  # one a reviewer checks first.
   compose:
     runs-on: ubuntu-latest
     steps:
