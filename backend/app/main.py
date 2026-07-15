@@ -50,13 +50,16 @@ install_error_handlers(app)
 
 @app.middleware("http")
 async def csrf_origin_check(request: Request, call_next):
-    """Blocks unauthorized cross-origin write requests for improved application security."""
+    """Blocks cross-origin writes. A request is same-origin if its Origin matches the
+    Host it was sent to (or a configured origin). Comparing against Host rather than
+    base_url keeps this correct behind a proxy, where scheme/port can drift."""
 
     if request.method not in SAFE_METHODS:
         origin = request.headers.get("origin")
         if origin:
-            allowed = {str(request.base_url).rstrip("/"), *get_settings().cors_origins}
-            if origin.rstrip("/") not in allowed:
+            host = request.headers.get("host", "")
+            same_origin = origin.split("://", 1)[-1] == host
+            if not (same_origin or origin.rstrip("/") in get_settings().cors_origins):
                 return JSONResponse(
                     status_code=status.HTTP_403_FORBIDDEN,
                     content={

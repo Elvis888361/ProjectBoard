@@ -10,7 +10,10 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
-        changeOrigin: true,
+        // Keep the browser's Host (localhost:5173) so the backend sees the request as
+        // same-origin. changeOrigin:true would rewrite it to the target and trip the
+        // CSRF origin check.
+        changeOrigin: false,
       },
     },
   },

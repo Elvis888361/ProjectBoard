@@ -25,6 +25,28 @@ async def test_requires_authentication(client: AsyncClient):
     assert res.json()["error"]["code"] == "unauthorized"
 
 
+async def test_same_origin_write_is_allowed(client: AsyncClient):
+    # A browser always sends Origin on a POST. When it matches the Host, it's our own
+    # page and must go through -- this is the case a header-less curl test misses.
+    host = client.base_url.host
+    res = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "same@x.com", "password": "correct-horse", "display_name": "S"},
+        headers={"Origin": f"http://{host}", "Host": host},
+    )
+    assert res.status_code == 201, res.text
+
+
+async def test_cross_origin_write_is_blocked(client: AsyncClient):
+    res = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "evil@x.com", "password": "correct-horse", "display_name": "E"},
+        headers={"Origin": "http://evil.example.com"},
+    )
+    assert res.status_code == 403
+    assert res.json()["error"]["code"] == "cross_origin_blocked"
+
+
 async def test_login_does_not_reveal_whether_an_account_exists(client: AsyncClient):
     # Ensures login never reveals whether user account exists.
     await client.post(
