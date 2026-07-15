@@ -15,19 +15,17 @@ You need Docker. Nothing else.
 ```bash
 docker compose up --build
 ```
+if you using Linux you can use
 
+```bash
+sudo docker compose up --build
+```
 Open **http://localhost:5173** and create an account. The database schema is applied
 automatically on first boot, and compose waits for Postgres before starting the API, so
 this works from a clean clone.
 
 To see the real time updates, open the same board in two windows (one private, so you get
 a second login) and drag a card in one.
-
-For a real deployment, set your own secret otherwise a dev default is used:
-
-```bash
-JWT_SECRET=$(openssl rand -hex 32) docker compose up --build
-```
 
 Every environment variable is documented in [.env.example](.env.example). No secrets are
 committed to the repo.
