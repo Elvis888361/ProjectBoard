@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Link, Navigate, Route, Routes } from 'react-router-dom'
 
 import { api } from './api/client'
 import { ApiError } from './api/types'
@@ -34,7 +34,9 @@ export function App() {
   return (
     <>
       <nav className="nav">
-        <span className="nav__brand">ProjectBoard</span>
+        <Link to="/" className="nav__brand" style={{ textDecoration: 'none', color: 'inherit' }}>
+          ProjectBoard
+        </Link>
         <span className="nav__user">{me.data?.display_name}</span>
         <button
           className="btn btn--small btn--icon"

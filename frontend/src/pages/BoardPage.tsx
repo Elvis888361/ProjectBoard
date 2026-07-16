@@ -60,12 +60,18 @@ export function BoardPage() {
   }
 
   if (tasksQuery.isError || project.isError) {
+
     return (
       <div className="state state--error">
-        <p>Couldn&apos;t load this board.</p>
-        <button className="btn" onClick={() => tasksQuery.refetch()}>
-          Try again
-        </button>
+        <p>Couldn&apos;t load this board. It may have been deleted.</p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
+          <button className="btn" onClick={() => tasksQuery.refetch()}>
+            Try again
+          </button>
+          <Link to="/" className="btn btn--primary">
+            Back to projects
+          </Link>
+        </div>
       </div>
     )
   }
